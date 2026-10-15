@@ -1,0 +1,76 @@
+:root {
+    --padding: 10px;
+    --border-radius: 5px;
+
+    --background-color: #1e1e1e;
+    --text-color: #f0f0f0c4;
+    --border-color: #888;
+}
+
+body {
+    max-width: 750px;
+    margin: 0 auto;
+    padding: var(--padding);
+    background-color: var(--background-color);
+    color: var(--text-color);
+
+    font-family: Arial, sans-serif;
+}
+
+#file-picker {
+    padding: var(--padding);
+    justify-content: center;
+}
+
+details {
+    margin-bottom: var(--padding);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: var(--padding);
+}
+
+details pre {
+    border-radius: var(--border-radius);
+    padding: var(--padding);
+    white-space: pre-wrap;
+    outline: 1px solid var(--border-color);
+}
+
+.prompt-disabled {
+    border-style: dashed;
+    opacity: 0.8;
+}
+
+summary {
+    position: relative;
+}
+
+.role-user summary::after {
+    position: absolute;
+    right: 0;
+    content: "👤";
+}
+
+.role-system summary::after {
+    position: absolute;
+    right: 0;
+    content: "";
+}
+
+.role-assistant summary::after {
+    position: absolute;
+    right: 0;
+    content: "🤖";
+}
+
+.marker summary::after {
+    position: absolute;
+    right: 0;
+    content: "📌";
+}
+
+.injected summary::after {
+    position: absolute;
+    right: 0;
+    content: "💉 @"attr(data-depth);
+}
