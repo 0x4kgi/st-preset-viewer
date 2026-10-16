@@ -74,10 +74,6 @@ function createPromptSections(identifier, enabledOverride) {
     nameEl.className = "prompt-name";
     nameEl.textContent = prompt.name || identifier;
 
-    const idEl = document.createElement("span");
-    idEl.className = "prompt-id";
-    idEl.textContent = identifier;
-
     const badgesEl = document.createElement("span");
     badgesEl.className = "badges";
     // "system" is the default role in ST — showing it on every card is just noise.
@@ -90,7 +86,7 @@ function createPromptSections(identifier, enabledOverride) {
         badgesEl.appendChild(makeBadge(`in-chat @${prompt.injection_depth}`, "badge-injected"));
     }
 
-    elemSummary.append(nameEl, idEl, badgesEl);
+    elemSummary.append(nameEl, badgesEl);
     elemDetails.appendChild(elemSummary);
 
     const bodyEl = document.createElement("div");
@@ -100,7 +96,7 @@ function createPromptSections(identifier, enabledOverride) {
     toolsEl.className = "prompt-tools";
 
     const countEl = document.createElement("span");
-    countEl.textContent = `${charCount.toLocaleString()} chars`;
+    countEl.textContent = `${charCount.toLocaleString()} chars - id: ${identifier}`;
 
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
@@ -135,8 +131,8 @@ function createPromptSections(identifier, enabledOverride) {
         elemDetails.classList.add("injected");
     }
 
-    // searchable index for filtering (name + id + content, lowercased)
-    elemDetails.dataset.search = `${prompt.name} ${identifier} ${content}`.toLowerCase();
+    // searchable index for filtering (name + content, lowercased)
+    elemDetails.dataset.search = `${prompt.name} ${content}`.toLowerCase();
     elemDetails.dataset.role = prompt.role;
 
     return elemDetails;
