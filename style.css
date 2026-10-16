@@ -277,6 +277,18 @@ details.role-assistant {
 details[open] {
     border-color: var(--border-strong);
     border-left-width: 3px;
+
+    &.role-user {
+        border-left-color: var(--role-user);
+    }
+
+    &.role-system {
+        border-left-color: var(--role-system);
+    }
+
+    &.role-assistant {
+        border-left-color: var(--role-assistant);
+    }
 }
 
 summary {
