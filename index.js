@@ -1,5 +1,11 @@
+import { downloadMarkdown } from "./utils/markdown.js";
+import { extractFilename } from "./utils/download.js";
+
 "use strict";
 
+// keys in the preset that ARE always present no matter what
+// the default preset from ST always comes with these keys
+// so it's safe to assume
 const UTILITY_PROMPTS_KEYS = [
     "impersonation_prompt",
     "new_chat_prompt",
@@ -10,23 +16,14 @@ const UTILITY_PROMPTS_KEYS = [
     "scenario_format",
     "personality_format",
     "group_nudge_prompt",
+    "prompts",
+    "prompt_order",
 ];
-
-const ROLE_ICON = {
-    assistant: "🤖",
-    user: "👤",
-    system: "",
-};
-
-const TYPE_ICON = {
-    custom: "✳",
-    inject: "💉",
-    marker: "📌",
-}
 
 const mainContainer = document.getElementById("main");
 const loadButton = document.getElementById("load-button");
 const fileInput = document.getElementById("file-input");
+const markdownExportButton = document.getElementById("markdown-export");
 
 // identifier: { content, name, role, booleans }
 let prompts = {};
@@ -93,6 +90,7 @@ function resetEverything() {
     mainContainer.innerHTML = "";
     prompts = {};
     promptOrder = [];
+    markdownExportButton.setAttribute("disabled", true);
 }
 
 function extractPresetData(json) {
@@ -135,6 +133,8 @@ function displayPrompts() {
 
         mainContainer.appendChild(promptElement);
     });
+
+    markdownExportButton.removeAttribute("disabled");
 }
 
 async function loadJsonFromInputs() {
@@ -152,4 +152,8 @@ async function loadJsonFromInputs() {
 
 loadButton.addEventListener("click", loadJsonFromInputs);
 fileInput.addEventListener("change", loadJsonFromInputs);
-
+markdownExportButton.addEventListener("click", () => {
+    const presetName = extractFilename(fileInput.value)
+        .replace(".json", "");
+    downloadMarkdown(presetName, prompts, promptOrder);
+});
