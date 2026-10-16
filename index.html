@@ -7,12 +7,49 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="file-picker">
-    <input type="file" id="file-input" accept=".json">
-    <button id="load-button">Refresh Preset</button>
-    <button id="markdown-export" disabled>Export to Markdown</button>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="title-wrap">
+        <h1>ST Preset Viewer</h1>
+        <p>Inspect SillyTavern text-completion presets</p>
+      </div>
+      <div class="file-wrap">
+        <label class="file-button" for="file-input">Choose JSON</label>
+        <input type="file" id="file-input" accept=".json,application/json">
+        <span id="file-name" class="file-name" aria-live="polite">No file selected</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar" role="toolbar" aria-label="Preset controls">
+    <input type="search" id="search-input" placeholder="Filter by name, id, or content…" autocomplete="off">
+    <select id="role-filter" aria-label="Filter by role">
+      <option value="all">All roles</option>
+      <option value="user">User</option>
+      <option value="system">System</option>
+      <option value="assistant">Assistant</option>
+    </select>
+    <div class="toolbar-spacer"></div>
+    <button id="expand-all" class="btn btn-ghost" disabled>Expand all</button>
+    <button id="collapse-all" class="btn btn-ghost" disabled>Collapse</button>
+    <button id="load-button" class="btn btn-ghost">Refresh</button>
+    <button id="markdown-export" class="btn btn-primary" disabled>Export .md</button>
   </div>
-  <div id="main"></div>
+
+  <div id="stats" class="stats" hidden></div>
+
+  <div id="empty-state" class="empty-state">
+    <div class="empty-icon" aria-hidden="true">📄</div>
+    <h2>Drop a preset JSON to get started</h2>
+    <p>You can also click <strong>Choose JSON</strong> above. Everything stays local in your browser.</p>
+  </div>
+
+  <main id="main" aria-live="polite"></main>
+
+  <footer class="app-footer">
+    <span>Local-only viewer &mdash; files never leave your browser.</span>
+  </footer>
+
   <script type="module" src="index.js"></script>
 </body>
 </html>
