@@ -77,7 +77,7 @@ function createPromptSections(identifier, enabledOverride) {
     const badgesEl = document.createElement("span");
     badgesEl.className = "badges";
     // "system" is the default role in ST — showing it on every card is just noise.
-    if (prompt.role !== "system") {
+    if (prompt.role && prompt.role !== "system") {
         badgesEl.appendChild(makeBadge(prompt.role, `badge-role-${prompt.role}`));
     }
     if (!enabled) badgesEl.appendChild(makeBadge("disabled", "badge-disabled"));
