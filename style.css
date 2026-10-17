@@ -444,6 +444,39 @@ details pre::-webkit-scrollbar-thumb {
     border: 2px solid var(--bg-inset);
 }
 
+/* ---------- Utility group / raw dump ---------- */
+
+.utility-group {
+    border-style: dashed;
+}
+
+.utility-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-inset);
+}
+
+.utility-list details {
+    background: var(--bg-raised);
+}
+
+.section-divider {
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    margin: 18px 0 0;
+}
+
+.section-divider[data-nofilter] {
+    display: block;
+}
+
+.raw-group pre {
+    max-height: 420px;
+}
+
 /* Hidden by filter */
 details[hidden] {
     display: none;

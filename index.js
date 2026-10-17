@@ -38,6 +38,15 @@ let prompts = {};
 // [ { enabled, identifier }, ... ]
 let promptOrder = [];
 
+// key: string content for the 9 plain-text utility prompts
+let utilityPrompts = {};
+
+// everything else in the file (samplers, models, toggles, ...)
+let restJson = {};
+
+// which prompt_order entry we actually rendered (100001 > 100000 > last)
+let activeOrderCharacterId = null;
+
 // Single source of truth for the currently loaded file.
 // `fileInput.files[0]` goes stale after a drag-and-drop, so every
 // entry point (picker, drop, reload, export) goes through this.
@@ -134,8 +143,152 @@ function createPromptSections(identifier, enabledOverride) {
     // searchable index for filtering (name + content, lowercased)
     elemDetails.dataset.search = `${prompt.name} ${content}`.toLowerCase();
     elemDetails.dataset.role = prompt.role;
+    elemDetails.classList.add("prompt-card");
 
     return elemDetails;
+}
+
+function createUtilityPromptDetails(key, value) {
+    const content = value ?? "";
+    const charCount = content.length;
+
+    const elemDetails = document.createElement("details");
+    elemDetails.classList.add("prompt-card", "utility-prompt");
+    elemDetails.id = `utility-${key}`;
+
+    const elemSummary = document.createElement("summary");
+    const nameEl = document.createElement("span");
+    nameEl.className = "prompt-name";
+    nameEl.textContent = key;
+    elemSummary.appendChild(nameEl);
+    elemDetails.appendChild(elemSummary);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "prompt-body";
+
+    const toolsEl = document.createElement("div");
+    toolsEl.className = "prompt-tools";
+
+    const countEl = document.createElement("span");
+    countEl.textContent = `${charCount.toLocaleString()} chars`;
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "copy-btn";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(content);
+            copyBtn.textContent = "Copied ✓";
+        } catch {
+            copyBtn.textContent = "Copy failed";
+        }
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+    });
+
+    toolsEl.append(countEl, copyBtn);
+
+    const elemContent = document.createElement("pre");
+    elemContent.textContent = content;
+
+    bodyEl.append(toolsEl, elemContent);
+    elemDetails.appendChild(bodyEl);
+
+    // searchable index for filtering (key + content, lowercased)
+    elemDetails.dataset.search = `${key} ${content}`.toLowerCase();
+    elemDetails.dataset.role = "all";
+
+    return elemDetails;
+}
+
+function createUtilityPromptsSection() {
+    const keys = Object.keys(utilityPrompts);
+    if (keys.length === 0) return null;
+
+    const outer = document.createElement("details");
+    outer.id = "utility-prompts";
+    outer.classList.add("utility-group");
+    outer.dataset.nofilter = "true";
+
+    const summary = document.createElement("summary");
+    const nameEl = document.createElement("span");
+    nameEl.className = "prompt-name";
+    nameEl.textContent = `Utility Prompts (${keys.length})`;
+    const badgesEl = document.createElement("span");
+    badgesEl.className = "badges";
+    badgesEl.appendChild(makeBadge("default", "badge-marker"));
+    summary.append(nameEl, badgesEl);
+    outer.appendChild(summary);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "utility-list";
+    keys.forEach(key => bodyEl.appendChild(createUtilityPromptDetails(key, utilityPrompts[key])));
+    outer.appendChild(bodyEl);
+
+    return outer;
+}
+
+function createRawJsonSection() {
+    const keys = Object.keys(restJson);
+    if (keys.length === 0) return null;
+
+    const divider = document.createElement("hr");
+    divider.className = "section-divider";
+    divider.dataset.nofilter = "true";
+
+    const rawText = JSON.stringify(restJson, null, 2);
+
+    const outer = document.createElement("details");
+    outer.id = "raw-json";
+    outer.classList.add("raw-group");
+    outer.dataset.nofilter = "true";
+
+    const summary = document.createElement("summary");
+    const nameEl = document.createElement("span");
+    nameEl.className = "prompt-name";
+    nameEl.textContent = `Rest of preset (${keys.length} settings)`;
+    const badgesEl = document.createElement("span");
+    badgesEl.className = "badges";
+    badgesEl.appendChild(makeBadge("raw json", "badge-marker"));
+    summary.append(nameEl, badgesEl);
+    outer.appendChild(summary);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "prompt-body";
+
+    const toolsEl = document.createElement("div");
+    toolsEl.className = "prompt-tools";
+
+    const countEl = document.createElement("span");
+    countEl.textContent = `${rawText.length.toLocaleString()} chars - indent 2`;
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "copy-btn";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+            await navigator.clipboard.writeText(rawText);
+            copyBtn.textContent = "Copied ✓";
+        } catch {
+            copyBtn.textContent = "Copy failed";
+        }
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+    });
+
+    toolsEl.append(countEl, copyBtn);
+
+    const elemContent = document.createElement("pre");
+    elemContent.textContent = rawText;
+
+    bodyEl.append(toolsEl, elemContent);
+    outer.appendChild(bodyEl);
+
+    const frag = document.createDocumentFragment();
+    frag.append(divider, outer);
+    return frag;
 }
 
 function handleFile(file) {
@@ -189,6 +342,9 @@ function resetEverything(clearFileLabel = true) {
     mainContainer.innerHTML = "";
     prompts = {};
     promptOrder = [];
+    utilityPrompts = {};
+    restJson = {};
+    activeOrderCharacterId = null;
     markdownExportButton.setAttribute("disabled", true);
     expandAllButton.setAttribute("disabled", true);
     collapseAllButton.setAttribute("disabled", true);
@@ -223,6 +379,20 @@ function extractPresetData(json) {
         ?? json.prompt_order.at(-1);
 
     orderEntry.order.forEach(i => promptOrder.push(i));
+    activeOrderCharacterId = orderEntry.character_id ?? null;
+
+    // plain-text utility prompts (everything in UTILITY_PROMPTS_KEYS
+    // except the two structural keys)
+    UTILITY_PROMPTS_KEYS.forEach(key => {
+        if (key === "prompts" || key === "prompt_order") return;
+        utilityPrompts[key] = json[key] ?? "";
+    });
+
+    // the rest of the file (samplers, models, toggles, ...) verbatim
+    restJson = {};
+    Object.keys(json).forEach(key => {
+        if (!UTILITY_PROMPTS_KEYS.includes(key)) restJson[key] = json[key];
+    });
 
     console.log("prompts:", prompts);
     console.log("prompt_order:", promptOrder);
@@ -230,6 +400,9 @@ function extractPresetData(json) {
 
 function displayPrompts() {
     mainContainer.innerHTML = "";
+
+    const utilitySection = createUtilityPromptsSection();
+    if (utilitySection) mainContainer.appendChild(utilitySection);
 
     promptOrder.forEach(prompt => {
         const promptElement = createPromptSections(prompt.identifier, prompt.enabled);
@@ -241,6 +414,9 @@ function displayPrompts() {
 
         mainContainer.appendChild(promptElement);
     });
+
+    const rawSection = createRawJsonSection();
+    if (rawSection) mainContainer.appendChild(rawSection);
 
     markdownExportButton.removeAttribute("disabled");
     expandAllButton.removeAttribute("disabled");
@@ -269,21 +445,41 @@ function applyFilters() {
     const role = roleFilter.value || "all";
     let visible = 0;
 
-    for (const details of mainContainer.children) {
-        const matchesQuery = !query || details.dataset.search.includes(query);
-        const matchesRole = role === "all" || details.dataset.role === role;
+    let total = 0;
+
+    for (const child of mainContainer.children) {
+        if (child.id === "utility-prompts") {
+            let innerVisible = 0;
+            const inner = child.querySelectorAll(".utility-prompt");
+            for (const d of inner) {
+                const hay = d.dataset.search || "";
+                const matchesQuery = !query || hay.includes(query);
+                d.hidden = !matchesQuery;
+                if (matchesQuery) innerVisible++;
+            }
+            child.hidden = query !== "" && innerVisible === 0;
+            if (query !== "" && innerVisible > 0) child.open = true;
+            continue;
+        }
+
+        if (child.dataset.nofilter === "true" || child.id === "raw-json") continue;
+
+        total++;
+        const hay = child.dataset.search || "";
+        const matchesQuery = !query || hay.includes(query);
+        const matchesRole = role === "all" || child.dataset.role === role;
         const show = matchesQuery && matchesRole;
-        details.hidden = !show;
+        child.hidden = !show;
         if (show) visible++;
     }
 
     // show a hint inside stats when filtering hides everything
-    if (mainContainer.children.length > 0 && visible === 0) {
+    if (total > 0 && visible === 0) {
         statsBar.hidden = false;
         statsBar.textContent += " — no matches for current filter";
-    } else if (mainContainer.children.length > 0) {
+    } else if (total > 0) {
         updateStats();
-        if (visible !== mainContainer.children.length) {
+        if (visible !== total) {
             statsBar.textContent += ` — showing ${visible}`;
         }
     }
