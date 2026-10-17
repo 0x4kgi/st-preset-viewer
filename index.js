@@ -214,12 +214,15 @@ function extractPresetData(json) {
     });
 
     /**
-     * prompt order has a lot of "versions" inside of the presets.
-     * `prompt_order: [ { character_id, order }, ... ]`
-     * I'm unsure on why that's the case, and peeking in the files show different
-     * orders of prompts, and yet ST uses the last one.
+     * ST loads 100001 as the default, 100000 is kept for legacy reasons,
+     * and if both fails, fallback the last prompt_order[] entry.
      */
-    json["prompt_order"].at(-1).order.forEach(i => promptOrder.push(i));
+    const orderEntry =
+        json.prompt_order.find(e => String(e.character_id) === '100001')
+        ?? json.prompt_order.find(e => String(e.character_id) === '100000')
+        ?? json.prompt_order.at(-1);
+
+    orderEntry.order.forEach(i => promptOrder.push(i));
 
     console.log("prompts:", prompts);
     console.log("prompt_order:", promptOrder);
