@@ -10,16 +10,16 @@
 <body>
   <header class="app-header">
     <div class="header-inner">
-      <div class="title-wrap">
+      <div class="title-wrap editor-title">
         <h1>ST Preset Editor <span id="dirty-dot" class="dirty-dot" hidden title="Unsaved changes">•</span></h1>
-        <p>Standalone editor &mdash; reuses the viewer&rsquo;s macro detection (ST 1.19). <a href="index.html" class="header-link">&larr; Viewer</a></p>
+        <input type="text" id="filename-input" class="filename-input" value="preset.json" spellcheck="false" aria-label="Save filename" title="Save filename">
       </div>
       <div class="file-wrap">
-        <label class="file-button" for="editor-file-input">Choose JSON</label>
+        <label class="file-button icon-btn" for="editor-file-input" title="Open preset JSON — everything stays local">📂</label>
         <input type="file" id="editor-file-input" accept=".json,application/json">
-        <button id="new-button" class="btn btn-ghost" type="button" title="Start a blank preset">New</button>
-        <input type="text" id="filename-input" class="filename-input" value="preset.json" spellcheck="false" aria-label="Save filename">
-        <button id="save-button" class="btn btn-primary" type="button" disabled>Download JSON</button>
+        <button id="new-button" class="btn btn-ghost icon-btn" type="button" title="New blank preset">➕</button>
+        <button id="save-button" class="btn btn-primary icon-btn" type="button" title="Download JSON" disabled>💾</button>
+        <a class="btn btn-ghost icon-btn" href="index.html" title="Open viewer">👁</a>
       </div>
     </div>
   </header>

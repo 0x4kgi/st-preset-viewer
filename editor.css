@@ -17,6 +17,41 @@ body {
     text-decoration: underline;
 }
 
+/* Compact editor header: no tagline, icon buttons. */
+.app-header {
+    padding: 8px 16px;
+}
+
+.title-wrap h1 {
+    font-size: 1.05rem;
+}
+
+.editor-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.editor-title h1 {
+    white-space: nowrap;
+}
+
+.editor-title .filename-input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+}
+
+.icon-btn {
+    min-width: 36px;
+    padding: 8px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+}
+
 .dirty-dot {
     color: var(--warning);
     font-size: 1.4em;
