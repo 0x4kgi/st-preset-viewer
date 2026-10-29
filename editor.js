@@ -76,7 +76,6 @@ let selection = null;
 
 let currentFile = null;
 let dirty = false;
-let uidCounter = 1;
 
 /* ------------------------------------------------------------------ *
  * DOM handles
@@ -100,6 +99,7 @@ const orderCount = document.getElementById("order-count");
 const orphanCount = document.getElementById("orphan-count");
 const main = document.getElementById("editor-main");
 const dirtyDot = document.getElementById("dirty-dot");
+const builtinBanner = document.getElementById("builtin-banner");
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -136,12 +136,6 @@ function orphanIds() {
     return [...prompts.keys()].filter(id => !inOrder.has(id));
 }
 
-function makeIdentifier(base = "new_prompt") {
-    let candidate = base;
-    while (prompts.has(candidate)) candidate = `${base}_${uidCounter++}`;
-    return candidate;
-}
-
 function defaultPromptObject(identifier) {
     return {
         identifier,
@@ -155,6 +149,117 @@ function defaultPromptObject(identifier) {
         injection_depth: 4,
         forbid_overrides: false,
     };
+}
+
+/* ------------------------------------------------------------------ *
+ * Built-in prompt knowledge (ST text-completion presets).
+ *
+ * `editable`   — whether ST lets the user rename it.
+ * `toggleable` — whether ST lets the user enable/disable it;
+ *                null = unknown, treated as allowed in this editor.
+ * Marker prompts are replaced with runtime data by ST; their `marker`
+ * flag, identifier and existence are locked here just like in ST.
+ * DEFAULT_ORDER is the canonical arrangement — edit freely.
+ * ------------------------------------------------------------------ */
+
+const BUILTIN_PROMPTS = Object.freeze({
+    worldInfoBefore: { name: "World Info (before)", editable: false, toggleable: null },
+    personaDescription: { name: "Persona Description", editable: false, toggleable: true },
+    charDescription: { name: "Char Description", editable: false, toggleable: true },
+    charPersonality: { name: "Char Personality", editable: false, toggleable: true },
+    scenario: { name: "Scenario", editable: false, toggleable: true },
+    worldInfoAfter: { name: "World Info (after)", editable: false, toggleable: null },
+    dialogueExamples: { name: "Chat Examples", editable: false, toggleable: true },
+    chatHistory: { name: "Chat history", editable: false, toggleable: false },
+    main: { name: "Main Prompt", editable: true, toggleable: null },
+    enhanceDefinitions: { name: "Enhance Definitions", editable: true, toggleable: true },
+    nsfw: { name: "Auxiliary Prompt", editable: true, toggleable: true },
+    jailbreak: { name: "Post-History Instructions", editable: true, toggleable: true },
+});
+
+// Canonical prompt arrangement, mirroring ST's default text-completion order.
+const DEFAULT_ORDER = Object.freeze([
+    "main",
+    "personaDescription",
+    "worldInfoBefore",
+    "charDescription",
+    "charPersonality",
+    "scenario",
+    "worldInfoAfter",
+    "dialogueExamples",
+    "enhanceDefinitions",
+    "nsfw",
+    "chatHistory",
+    "jailbreak",
+]);
+
+// Identifiers ST treats as built-in marker prompts.
+const MARKER_PROMPTS = new Set([
+    "worldInfoBefore",
+    "personaDescription",
+    "charDescription",
+    "charPersonality",
+    "scenario",
+    "worldInfoAfter",
+    "dialogueExamples",
+    "chatHistory",
+]);
+
+function isBuiltin(id) {
+    return Object.hasOwn(BUILTIN_PROMPTS, id);
+}
+
+function isToggleable(id) {
+    return BUILTIN_PROMPTS[id]?.toggleable !== false;
+}
+
+function isNameEditable(id) {
+    return BUILTIN_PROMPTS[id]?.editable !== false;
+}
+
+// ST assigns UUIDs to every new prompt, and the identifier cannot be changed
+// there afterwards. This editor still allows editing (except for built-ins),
+// but new prompts start life as UUIDs just like in ST.
+function makeIdentifier() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        let id = crypto.randomUUID();
+        while (prompts.has(id)) id = crypto.randomUUID();
+        return id;
+    }
+    let id;
+    do {
+        id = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+            const r = (Math.random() * 16) | 0;
+            return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+        });
+    } while (prompts.has(id));
+    return id;
+}
+
+function builtinPromptObject(identifier) {
+    const meta = BUILTIN_PROMPTS[identifier] ?? { name: identifier };
+    return {
+        ...defaultPromptObject(identifier),
+        name: meta.name ?? identifier,
+        // Best-effort mirror of ST defaults for a fresh preset.
+        system_prompt: identifier === "main",
+        marker: MARKER_PROMPTS.has(identifier),
+        enabled: true,
+    };
+}
+
+// Insert into the active order where DEFAULT_ORDER says it belongs:
+// before the first entry that ranks after it, else appended.
+function insertOrderEntryAtDefaultPosition(identifier, enabled) {
+    const entry = { identifier, enabled: !!enabled };
+    const rank = DEFAULT_ORDER.indexOf(identifier);
+    if (rank === -1) { order.push(entry); return; }
+    const idx = order.findIndex(o => {
+        const r = DEFAULT_ORDER.indexOf(o.identifier);
+        return r !== -1 && r > rank;
+    });
+    if (idx === -1) order.push(entry);
+    else order.splice(idx, 0, entry);
 }
 
 /* ------------------------------------------------------------------ *
@@ -349,8 +454,11 @@ function blankPreset() {
         scenario_format: "{{scenario}}",
         personality_format: "{{personality}}",
         wi_format: "{0}",
-        prompts: [defaultPromptObject("first_prompt")],
-        prompt_order: [{ character_id: 100001, order: [{ identifier: "first_prompt", enabled: true }] }],
+        prompts: DEFAULT_ORDER.map(builtinPromptObject),
+        prompt_order: [{
+            character_id: 100001,
+            order: DEFAULT_ORDER.map(identifier => ({ identifier, enabled: true })),
+        }],
     };
     currentFile = null;
     reloadButton.disabled = true;
@@ -442,6 +550,26 @@ function renderSidebar() {
     orphanList.innerHTML = "";
     utilityList.innerHTML = "";
 
+    // Built-ins are essential: offer one-click repair when any are missing.
+    const missingBuiltin = DEFAULT_ORDER.filter(id => !prompts.has(id));
+    builtinBanner.hidden = missingBuiltin.length === 0;
+    builtinBanner.innerHTML = "";
+    if (missingBuiltin.length > 0) {
+        builtinBanner.appendChild(el("span", null, `Missing built-ins: ${missingBuiltin.join(", ")}`));
+        const addMissing = el("button", "btn btn-ghost", `Add missing (${missingBuiltin.length})`);
+        addMissing.type = "button";
+        addMissing.addEventListener("click", () => {
+            for (const id of missingBuiltin) {
+                prompts.set(id, builtinPromptObject(id));
+                insertOrderEntryAtDefaultPosition(id, true);
+            }
+            selection = { type: "prompt", key: missingBuiltin[0] };
+            markDirty();
+            renderAll();
+        });
+        builtinBanner.appendChild(addMissing);
+    }
+
     const orphans = orphanIds();
     orderCount.textContent = `· ${order.length}`;
     orphanCount.textContent = `· ${orphans.length}`;
@@ -457,7 +585,10 @@ function renderSidebar() {
         check.type = "checkbox";
         check.className = "enable-check";
         check.checked = entry.enabled;
-        check.title = entry.enabled ? "Enabled in prompt order (click to disable)" : "Disabled in prompt order (click to enable)";
+        check.disabled = !isToggleable(entry.identifier);
+        check.title = !isToggleable(entry.identifier)
+            ? "ST does not allow toggling this built-in."
+            : (entry.enabled ? "Enabled in prompt order (click to disable)" : "Disabled in prompt order (click to enable)");
         check.addEventListener("change", () => {
             entry.enabled = check.checked;
             const p = prompts.get(entry.identifier);
@@ -470,7 +601,7 @@ function renderSidebar() {
 
         const btn = el("button", "order-select", name);
         btn.type = "button";
-        btn.title = entry.identifier;
+        btn.title = entry.identifier + (isBuiltin(entry.identifier) ? " (ST built-in)" : "");
         btn.addEventListener("click", () => { selection = { type: "prompt", key: entry.identifier }; renderSidebar(); renderMain(); });
 
         const up = el("button", "row-btn", "▲");
@@ -543,11 +674,12 @@ function fieldRow(labelText, control, { full = false, hint = "" } = {}) {
     return label;
 }
 
-function checkRow(labelText, checked, onChange, hint = "") {
+function checkRow(labelText, checked, onChange, hint = "", disabled = false) {
     const label = el("label", "ed-field ed-check");
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = !!checked;
+    box.disabled = !!disabled;
     box.addEventListener("change", () => onChange(box.checked));
     label.appendChild(box);
     label.appendChild(el("span", null, labelText));
@@ -561,12 +693,13 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
     if (!inOrder) head.appendChild(el("span", "badge badge-orphan", "not in order"));
     if (inOrder && !orderEntry.enabled) head.appendChild(el("span", "badge badge-disabled", "disabled"));
     if (prompt.marker) head.appendChild(el("span", "badge badge-marker", "builtin"));
+    else if (isBuiltin(prompt.identifier)) head.appendChild(el("span", "badge badge-marker", "default"));
     head.appendChild(el("span", "spacer"));
 
     const dupBtn = el("button", "btn btn-ghost", "Duplicate");
     dupBtn.type = "button";
     dupBtn.addEventListener("click", () => {
-        const id = makeIdentifier(prompt.identifier);
+        const id = makeIdentifier();
         const copy = structuredClone(prompt);
         copy.identifier = id;
         copy.name = `${prompt.name || prompt.identifier} (copy)`;
@@ -579,8 +712,10 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
 
     const delBtn = el("button", "btn btn-ghost btn-danger", "Delete");
     delBtn.type = "button";
-    delBtn.disabled = prompt.marker;
-    delBtn.title = prompt.marker ? "ST builtin marker prompts should not be deleted." : "Delete this prompt";
+    delBtn.disabled = prompt.marker || isBuiltin(prompt.identifier);
+    delBtn.title = (prompt.marker || isBuiltin(prompt.identifier))
+        ? "ST built-in prompts cannot be deleted."
+        : "Delete this prompt";
     delBtn.addEventListener("click", () => {
         if (!confirm(`Delete prompt "${prompt.identifier}"?`)) return;
         prompts.delete(prompt.identifier);
@@ -606,12 +741,18 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
 
     const nameInput = document.createElement("input");
     nameInput.type = "text"; nameInput.value = prompt.name ?? "";
+    nameInput.disabled = !isNameEditable(prompt.identifier);
     nameInput.addEventListener("input", () => { prompt.name = nameInput.value; markDirty(); updateStats(); });
-    grid.appendChild(fieldRow("Name (labels only — ST does not expand macros here)", nameInput, { full: true }));
+    grid.appendChild(fieldRow(
+        isNameEditable(prompt.identifier) ? "Name (labels only — ST does not expand macros here)" : "Name (locked by ST for built-ins)",
+        nameInput,
+        { full: true },
+    ));
 
     const idInput = document.createElement("input");
     idInput.type = "text"; idInput.value = prompt.identifier;
     idInput.spellcheck = false;
+    idInput.disabled = isBuiltin(prompt.identifier);
     idInput.addEventListener("change", () => {
         const oldId = prompt.identifier;
         const next = idInput.value.trim();
@@ -631,7 +772,11 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         selection = { type: "prompt", key: next };
         markDirty(); renderAll();
     });
-    grid.appendChild(fieldRow("Identifier (must be unique, no spaces)", idInput, { full: true }));
+    grid.appendChild(fieldRow(
+        isBuiltin(prompt.identifier) ? "Identifier (locked by ST for built-ins)" : "Identifier (UUID in ST — editable here, must stay unique)",
+        idInput,
+        { full: true },
+    ));
 
     const roleSel = document.createElement("select");
     for (const r of ["system", "user", "assistant"]) {
@@ -662,10 +807,12 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         if (inOrder) { orderEntry.enabled = v; prompt.enabled = v; }
         else prompt.enabled = v;
         markDirty(); renderSidebar(); renderMain(); updateStats();
-    }, inOrder ? "This is what ST evaluates — not the prompt's own flag." : "Takes effect once added to the order."));
+    }, inOrder ? "This is what ST evaluates — not the prompt's own flag." : "Takes effect once added to the order.", !isToggleable(prompt.identifier)));
 
     grid.appendChild(checkRow("System prompt", !!prompt.system_prompt, v => { prompt.system_prompt = v; markDirty(); }));
-    grid.appendChild(checkRow("Marker (ST builtin)", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); }, "Content is evaluated but replaced with runtime data."));
+    grid.appendChild(checkRow("Marker (ST builtin)", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); },
+        isBuiltin(prompt.identifier) ? "Locked by ST for built-ins — content is evaluated but replaced with runtime data." : "Content is evaluated but replaced with runtime data.",
+        isBuiltin(prompt.identifier)));
     grid.appendChild(checkRow("Forbid overrides", !!prompt.forbid_overrides, v => { prompt.forbid_overrides = v; markDirty(); }));
     main.appendChild(grid);
 
@@ -857,6 +1004,8 @@ function updateStats() {
     if (m.active > 0) parts.push(`${m.active} macros in active fields`);
     if (m.errors > 0) parts.push(`${m.errors} error${m.errors === 1 ? "" : "s"}`);
     if (m.warnings > 0) parts.push(`${m.warnings} warning${m.warnings === 1 ? "" : "s"}`);
+    const missingBuiltin = DEFAULT_ORDER.filter(id => !prompts.has(id));
+    if (missingBuiltin.length > 0) parts.push(`missing built-ins: ${missingBuiltin.join(", ")}`);
     parts.push(dirty ? "unsaved changes" : "saved");
     statsBar.textContent = parts.join(" · ");
     statsBar.hidden = false;
