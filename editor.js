@@ -154,7 +154,11 @@ function defaultPromptObject(identifier) {
 /* ------------------------------------------------------------------ *
  * Built-in prompt knowledge (ST text-completion presets).
  *
- * `editable`   — whether ST lets the user rename it.
+ * `stSupplied` — the prompt's content is supplied by ST at runtime, so ST
+ *                doesn't even show a textbox for it. This editor shows a
+ *                locked panel instead (stored text, if any, is preserved
+ *                verbatim on save but never evaluated by ST). All prompts,
+ *                built-in or not, are renameable.
  * `toggleable` — whether ST lets the user enable/disable it;
  *                null = unknown, treated as allowed in this editor.
  * Marker prompts are replaced with runtime data by ST; their `marker`
@@ -163,18 +167,18 @@ function defaultPromptObject(identifier) {
  * ------------------------------------------------------------------ */
 
 const BUILTIN_PROMPTS = Object.freeze({
-    worldInfoBefore: { name: "World Info (before)", editable: false, toggleable: null },
-    personaDescription: { name: "Persona Description", editable: false, toggleable: true },
-    charDescription: { name: "Char Description", editable: false, toggleable: true },
-    charPersonality: { name: "Char Personality", editable: false, toggleable: true },
-    scenario: { name: "Scenario", editable: false, toggleable: true },
-    worldInfoAfter: { name: "World Info (after)", editable: false, toggleable: null },
-    dialogueExamples: { name: "Chat Examples", editable: false, toggleable: true },
-    chatHistory: { name: "Chat history", editable: false, toggleable: false },
-    main: { name: "Main Prompt", editable: true, toggleable: null },
-    enhanceDefinitions: { name: "Enhance Definitions", editable: true, toggleable: true },
-    nsfw: { name: "Auxiliary Prompt", editable: true, toggleable: true },
-    jailbreak: { name: "Post-History Instructions", editable: true, toggleable: true },
+    worldInfoBefore: { name: "World Info (before)", stSupplied: true, toggleable: null },
+    personaDescription: { name: "Persona Description", stSupplied: true, toggleable: true },
+    charDescription: { name: "Char Description", stSupplied: true, toggleable: true },
+    charPersonality: { name: "Char Personality", stSupplied: true, toggleable: true },
+    scenario: { name: "Scenario", stSupplied: true, toggleable: true },
+    worldInfoAfter: { name: "World Info (after)", stSupplied: true, toggleable: null },
+    dialogueExamples: { name: "Chat Examples", stSupplied: true, toggleable: true },
+    chatHistory: { name: "Chat history", stSupplied: true, toggleable: false },
+    main: { name: "Main Prompt", stSupplied: false, toggleable: null },
+    enhanceDefinitions: { name: "Enhance Definitions", stSupplied: false, toggleable: true },
+    nsfw: { name: "Auxiliary Prompt", stSupplied: false, toggleable: true },
+    jailbreak: { name: "Post-History Instructions", stSupplied: false, toggleable: true },
 });
 
 // Canonical prompt arrangement, mirroring ST's default text-completion order.
@@ -213,8 +217,20 @@ function isToggleable(id) {
     return BUILTIN_PROMPTS[id]?.toggleable !== false;
 }
 
-function isNameEditable(id) {
-    return BUILTIN_PROMPTS[id]?.editable !== false;
+// Where ST-supplied content actually comes from (shown in the locked panel).
+const ST_SUPPLIED_SOURCES = Object.freeze({
+    worldInfoBefore: "World Info entries placed before the character block — edit your lorebooks",
+    personaDescription: "the active user persona — edit the persona directly",
+    charDescription: "the character card description — edit the character card",
+    charPersonality: "the character card personality — edit the character card",
+    scenario: "the scenario — edit the character card",
+    worldInfoAfter: "World Info entries placed after the scenario — edit your lorebooks",
+    dialogueExamples: "the character card example dialogue — edit the character card",
+    chatHistory: "the chat history",
+});
+
+function isContentSupplied(id) {
+    return BUILTIN_PROMPTS[id]?.stSupplied === true;
 }
 
 // ST assigns UUIDs to every new prompt, and the identifier cannot be changed
@@ -741,13 +757,8 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
 
     const nameInput = document.createElement("input");
     nameInput.type = "text"; nameInput.value = prompt.name ?? "";
-    nameInput.disabled = !isNameEditable(prompt.identifier);
     nameInput.addEventListener("input", () => { prompt.name = nameInput.value; markDirty(); updateStats(); });
-    grid.appendChild(fieldRow(
-        isNameEditable(prompt.identifier) ? "Name (labels only — ST does not expand macros here)" : "Name (locked by ST for built-ins)",
-        nameInput,
-        { full: true },
-    ));
+    grid.appendChild(fieldRow("Name (labels only — ST does not expand macros here)", nameInput, { full: true }));
 
     const idInput = document.createElement("input");
     idInput.type = "text"; idInput.value = prompt.identifier;
@@ -811,10 +822,35 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
 
     grid.appendChild(checkRow("System prompt", !!prompt.system_prompt, v => { prompt.system_prompt = v; markDirty(); }));
     grid.appendChild(checkRow("Marker (ST builtin)", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); },
-        isBuiltin(prompt.identifier) ? "Locked by ST for built-ins — content is evaluated but replaced with runtime data." : "Content is evaluated but replaced with runtime data.",
+        isBuiltin(prompt.identifier)
+            ? "Locked by ST — content comes from the character card, lorebooks, persona or chat history."
+            : "When set, ST ignores the content box and supplies the output from runtime data.",
         isBuiltin(prompt.identifier)));
     grid.appendChild(checkRow("Forbid overrides", !!prompt.forbid_overrides, v => { prompt.forbid_overrides = v; markDirty(); }));
     main.appendChild(grid);
+
+    // ST-supplied content: no textbox, just like ST. Stored text (usually
+    // empty) is preserved verbatim on save but never evaluated.
+    if (prompt.marker || isContentSupplied(prompt.identifier)) {
+        const source = ST_SUPPLIED_SOURCES[prompt.identifier] ?? "runtime data (extension prompt)";
+        const lockHead = el("div", "ed-field full");
+        lockHead.appendChild(el("span", null, "Content — supplied by ST"));
+        main.appendChild(lockHead);
+        main.appendChild(el("p", "macro-note",
+            `No textbox here, same as ST: this prompt's content comes from ${source}. ` +
+            "Stored text below (if any) is ignored by ST and preserved unchanged on save."));
+        if ((prompt.content ?? "") !== "") {
+            const stored = document.createElement("details");
+            stored.className = "ed-preview";
+            stored.appendChild(el("summary", null, "Stored text (ignored by ST)"));
+            const pre = el("pre", "prompt-content");
+            const storedAnalysis = analyzeMacros(prompt.content, { kind: "prompt", enabled: false });
+            renderHighlight(pre, prompt.content, storedAnalysis, true);
+            stored.appendChild(pre);
+            main.appendChild(stored);
+        }
+        return;
+    }
 
     // Content + live macro feedback. The textarea is created once per
     // selection; only the panel/preview refresh on input (keeps focus).
@@ -844,7 +880,6 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         line.textContent = `${macroSummaryText(analysis, true)} · ${textarea.value.length.toLocaleString()} chars`;
         if (!inOrder) line.textContent += " · not in order, not evaluated";
         else if (!enabled) line.textContent += " · disabled, not evaluated";
-        if (prompt.marker) line.textContent += " · marker: output replaced by ST";
         renderIssues(issuesBox, analysis);
         renderChips(chipsBox, analysis);
         renderHighlight(pre, textarea.value, analysis, true);
@@ -976,7 +1011,10 @@ function countAllMacros() {
     let active = 0, errors = 0, warnings = 0;
     for (const o of order) {
         const p = prompts.get(o.identifier);
-        if (!p) continue;
+        // ST-supplied (marker) content is replaced with runtime data, so it
+        // is never evaluated — excluded here (the viewer still counts the
+        // stored text, since it reports on the file, not on ST behavior).
+        if (!p || p.marker || isContentSupplied(o.identifier)) continue;
         const a = analyzeMacros(p.content ?? "", { kind: "prompt", enabled: o.enabled });
         if (o.enabled) {
             active += a.stats.total;
