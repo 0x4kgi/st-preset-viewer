@@ -25,13 +25,11 @@
   </header>
 
   <div class="toolbar" role="toolbar" aria-label="Editor controls">
-    <input type="search" id="editor-search" placeholder="Filter prompts…" autocomplete="off">
-    <div class="toolbar-spacer"></div>
+    <div id="editor-stats" class="stats toolbar-stats" hidden></div>
     <button id="add-prompt-button" class="btn btn-ghost" type="button" disabled>Add prompt</button>
     <button id="reload-button" class="btn btn-ghost" type="button" disabled title="Reload from the loaded file, discarding edits">Reload</button>
   </div>
 
-  <div id="editor-stats" class="stats" hidden></div>
   <div id="editor-errors" class="editor-errors" hidden></div>
 
   <div id="editor-empty" class="empty-state">
@@ -42,6 +40,9 @@
 
   <div id="editor-layout" class="editor-layout" hidden>
     <aside class="editor-sidebar" aria-label="Prompt list">
+      <div class="side-search">
+        <input type="search" id="editor-search" placeholder="Filter prompts…" autocomplete="off" aria-label="Filter prompts">
+      </div>
       <div id="builtin-banner" class="builtin-banner" hidden></div>
       <div class="side-group">
         <h3>Prompt order <span id="order-count" class="side-count"></span></h3>

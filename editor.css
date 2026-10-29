@@ -260,6 +260,73 @@ body {
     margin-bottom: 12px;
 }
 
+.ed-row {
+    display: grid;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.ed-row-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+.ed-row-2 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.ed-name-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-family: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+}
+
+.ed-name-input:hover {
+    border-color: var(--border);
+}
+
+.ed-name-input:focus {
+    background: var(--bg-inset);
+    border-color: var(--accent);
+    outline: none;
+}
+
+.toolbar-stats {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    align-self: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.side-search {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: -10px -10px 8px;
+    padding: 10px;
+    background: var(--bg-raised);
+}
+
+.side-search input {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.82rem;
+}
+
 .ed-field {
     display: flex;
     flex-direction: column;
@@ -389,7 +456,9 @@ body {
         max-height: 260px;
     }
 
-    .ed-grid {
+    .ed-grid,
+    .ed-row-3,
+    .ed-row-2 {
         grid-template-columns: 1fr;
     }
 }

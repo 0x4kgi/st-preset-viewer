@@ -705,7 +705,22 @@ function checkRow(labelText, checked, onChange, hint = "", disabled = false) {
 
 function renderPromptForm(prompt, orderEntry, inOrder) {
     const head = el("div", "ed-head");
-    head.appendChild(el("h2", null, prompt.identifier));
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = prompt.name ?? "";
+    nameInput.className = "ed-name-input";
+    nameInput.spellcheck = false;
+    nameInput.setAttribute("aria-label", "Prompt name");
+    nameInput.title = "Labels only — ST does not expand macros here.";
+    let nameTimer = 0;
+    nameInput.addEventListener("input", () => {
+        prompt.name = nameInput.value;
+        markDirty();
+        clearTimeout(nameTimer);
+        nameTimer = setTimeout(renderSidebar, 300);
+        updateStats();
+    });
+    head.appendChild(nameInput);
     if (!inOrder) head.appendChild(el("span", "badge badge-orphan", "not in order"));
     if (inOrder && !orderEntry.enabled) head.appendChild(el("span", "badge badge-disabled", "disabled"));
     if (prompt.marker) head.appendChild(el("span", "badge badge-marker", "builtin"));
@@ -755,11 +770,6 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
 
     const grid = el("div", "ed-grid");
 
-    const nameInput = document.createElement("input");
-    nameInput.type = "text"; nameInput.value = prompt.name ?? "";
-    nameInput.addEventListener("input", () => { prompt.name = nameInput.value; markDirty(); updateStats(); });
-    grid.appendChild(fieldRow("Name", nameInput, { full: true, hint: "Labels only — ST does not expand macros here." }));
-
     const idInput = document.createElement("input");
     idInput.type = "text"; idInput.value = prompt.identifier;
     idInput.spellcheck = false;
@@ -802,7 +812,8 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         roleSel.appendChild(opt);
     }
     roleSel.addEventListener("change", () => { prompt.role = roleSel.value; markDirty(); updateStats(); });
-    grid.appendChild(fieldRow("Role", roleSel));
+    const row3 = el("div", "ed-row ed-row-3");
+    row3.appendChild(fieldRow("Role", roleSel));
 
     const posSel = document.createElement("select");
     [["0", "Relative (default)"], ["1", `In-chat @ depth`]].forEach(([v, label]) => {
@@ -812,27 +823,20 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         posSel.appendChild(opt);
     });
     posSel.addEventListener("change", () => { prompt.injection_position = Number(posSel.value); markDirty(); renderSidebar(); });
-    grid.appendChild(fieldRow("Position", posSel, { hint: "0 = relative (default), 1 = in-chat at depth." }));
+    row3.appendChild(fieldRow("Position", posSel, { hint: "0 = relative (default), 1 = in-chat at depth." }));
 
     const depthInput = document.createElement("input");
     depthInput.type = "number"; depthInput.min = "0"; depthInput.value = prompt.injection_depth ?? 4;
     depthInput.addEventListener("input", () => { prompt.injection_depth = Number(depthInput.value); markDirty(); });
-    grid.appendChild(fieldRow("Depth", depthInput, { hint: "In-chat injection depth." }));
+    row3.appendChild(fieldRow("Depth", depthInput, { hint: "In-chat injection depth." }));
 
-    grid.appendChild(checkRow("Enabled", inOrder ? orderEntry.enabled : !!prompt.enabled, v => {
-        if (inOrder) { orderEntry.enabled = v; prompt.enabled = v; }
-        else prompt.enabled = v;
-        markDirty(); renderSidebar(); renderMain(); updateStats();
-    }, inOrder ? "This is what ST evaluates — not the prompt's own flag." : "Takes effect once added to the order.", !isToggleable(prompt.identifier)));
-
-    grid.appendChild(checkRow("System prompt", !!prompt.system_prompt, v => { prompt.system_prompt = v; markDirty(); }));
-    grid.appendChild(checkRow("Marker", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); },
-        isBuiltin(prompt.identifier)
-            ? "Locked by ST — content comes from the character card, lorebooks, persona or chat history."
-            : "When set, ST ignores the content box and supplies the output from runtime data.",
-        isBuiltin(prompt.identifier)));
-    grid.appendChild(checkRow("Forbid overrides", !!prompt.forbid_overrides, v => { prompt.forbid_overrides = v; markDirty(); }));
     main.appendChild(grid);
+    main.appendChild(row3);
+
+    const row2 = el("div", "ed-row ed-row-2");
+    row2.appendChild(checkRow("System prompt", !!prompt.system_prompt, v => { prompt.system_prompt = v; markDirty(); }));
+    row2.appendChild(checkRow("Forbid overrides", !!prompt.forbid_overrides, v => { prompt.forbid_overrides = v; markDirty(); }));
+    main.appendChild(row2);
 
     // ST-supplied content: no textbox, just like ST. Stored text (usually
     // empty) is preserved verbatim on save but never evaluated.
