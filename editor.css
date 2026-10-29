@@ -302,12 +302,6 @@ body {
     accent-color: var(--accent);
 }
 
-.ed-hint {
-    font-size: 0.75rem;
-    color: var(--text-faint);
-    font-weight: 400;
-}
-
 .ed-textarea {
     width: 100%;
     min-height: 220px;

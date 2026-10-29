@@ -686,7 +686,7 @@ function fieldRow(labelText, control, { full = false, hint = "" } = {}) {
     const label = el("label", "ed-field" + (full ? " full" : ""));
     label.appendChild(el("span", null, labelText));
     label.appendChild(control);
-    if (hint) label.appendChild(el("span", "ed-hint", hint));
+    if (hint) label.title = hint;
     return label;
 }
 
@@ -696,10 +696,10 @@ function checkRow(labelText, checked, onChange, hint = "", disabled = false) {
     box.type = "checkbox";
     box.checked = !!checked;
     box.disabled = !!disabled;
+    if (hint) label.title = hint;
     box.addEventListener("change", () => onChange(box.checked));
     label.appendChild(box);
     label.appendChild(el("span", null, labelText));
-    if (hint) label.appendChild(el("span", "ed-hint", hint));
     return label;
 }
 
@@ -758,7 +758,7 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
     const nameInput = document.createElement("input");
     nameInput.type = "text"; nameInput.value = prompt.name ?? "";
     nameInput.addEventListener("input", () => { prompt.name = nameInput.value; markDirty(); updateStats(); });
-    grid.appendChild(fieldRow("Name (labels only — ST does not expand macros here)", nameInput, { full: true }));
+    grid.appendChild(fieldRow("Name", nameInput, { full: true, hint: "Labels only — ST does not expand macros here." }));
 
     const idInput = document.createElement("input");
     idInput.type = "text"; idInput.value = prompt.identifier;
@@ -784,9 +784,14 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         markDirty(); renderAll();
     });
     grid.appendChild(fieldRow(
-        isBuiltin(prompt.identifier) ? "Identifier (locked by ST for built-ins)" : "Identifier (UUID in ST — editable here, must stay unique)",
+        "Identifier",
         idInput,
-        { full: true },
+        {
+            full: true,
+            hint: isBuiltin(prompt.identifier)
+                ? "Locked by ST for built-ins."
+                : "UUID in ST, unchangeable there — editable here, must stay unique.",
+        },
     ));
 
     const roleSel = document.createElement("select");
@@ -807,21 +812,21 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         posSel.appendChild(opt);
     });
     posSel.addEventListener("change", () => { prompt.injection_position = Number(posSel.value); markDirty(); renderSidebar(); });
-    grid.appendChild(fieldRow("Injection position", posSel));
+    grid.appendChild(fieldRow("Position", posSel, { hint: "0 = relative (default), 1 = in-chat at depth." }));
 
     const depthInput = document.createElement("input");
     depthInput.type = "number"; depthInput.min = "0"; depthInput.value = prompt.injection_depth ?? 4;
     depthInput.addEventListener("input", () => { prompt.injection_depth = Number(depthInput.value); markDirty(); });
-    grid.appendChild(fieldRow("Injection depth", depthInput));
+    grid.appendChild(fieldRow("Depth", depthInput, { hint: "In-chat injection depth." }));
 
-    grid.appendChild(checkRow("Enabled in prompt order", inOrder ? orderEntry.enabled : !!prompt.enabled, v => {
+    grid.appendChild(checkRow("Enabled", inOrder ? orderEntry.enabled : !!prompt.enabled, v => {
         if (inOrder) { orderEntry.enabled = v; prompt.enabled = v; }
         else prompt.enabled = v;
         markDirty(); renderSidebar(); renderMain(); updateStats();
     }, inOrder ? "This is what ST evaluates — not the prompt's own flag." : "Takes effect once added to the order.", !isToggleable(prompt.identifier)));
 
     grid.appendChild(checkRow("System prompt", !!prompt.system_prompt, v => { prompt.system_prompt = v; markDirty(); }));
-    grid.appendChild(checkRow("Marker (ST builtin)", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); },
+    grid.appendChild(checkRow("Marker", !!prompt.marker, v => { prompt.marker = v; markDirty(); renderMain(); },
         isBuiltin(prompt.identifier)
             ? "Locked by ST — content comes from the character card, lorebooks, persona or chat history."
             : "When set, ST ignores the content box and supplies the output from runtime data.",
