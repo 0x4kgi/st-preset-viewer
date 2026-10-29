@@ -1286,6 +1286,10 @@ function pairScopes(macros, issues) {
     const stack = [];
     /** @type {any[]} */
     const pairs = [];
+    // `{{else}}` is seen before its `{{/if}}`, so the pair does not exist
+    // yet. Stash it here keyed by the opener's position in `macros`.
+    /** @type {Map<number, { elsePos: number, depth: number }>} */
+    const pendingElse = new Map();
 
     for (let i = 0; i < macros.length; i++) {
         const macro = macros[i];
@@ -1313,6 +1317,7 @@ function pairScopes(macros, issues) {
             }
 
             const open = macros[stack[match]];
+            const openPos = stack[match];
             if (match !== stack.length - 1) {
                 for (let j = match + 1; j < stack.length; j++) {
                     const inner = macros[stack[j]];
@@ -1325,6 +1330,9 @@ function pairScopes(macros, issues) {
                             start: inner.start,
                         });
                     }
+                    // Discarded inner openers never get a pair; drop any
+                    // `{{else}}` stashed for them so it stays scopeless.
+                    pendingElse.delete(stack[j]);
                 }
             }
 
@@ -1338,6 +1346,15 @@ function pairScopes(macros, issues) {
                 condition: open.lowerName === "if" ? (open.args[0] ?? "") : open.args.join("::"),
                 branches: [],
             });
+
+            const stashed = pendingElse.get(openPos);
+            if (stashed !== undefined && open.lowerName === "if") {
+                const elseMacro = macros[stashed.elsePos];
+                pairs[pairIndex].hasElse = true;
+                pairs[pairIndex].elseIndex = elseMacro.index;
+                elseMacro.scope = { role: "else", pairIndex, depth: stashed.depth };
+                pendingElse.delete(openPos);
+            }
 
             open.scope = { role: "open", pairIndex, depth: stack.length - 1 };
             macro.scope = { role: "close", pairIndex, depth: stack.length - 1 };
@@ -1366,8 +1383,8 @@ function pairScopes(macros, issues) {
             }
 
             const open = macros[stack[match]];
-            const pair = pairs[open.scope.pairIndex];
-            if (pair.hasElse) {
+            const openPos = stack[match];
+            if (pendingElse.has(openPos)) {
                 issues.push({
                     code: "duplicate-else",
                     severity: "warning",
@@ -1376,9 +1393,7 @@ function pairScopes(macros, issues) {
                     start: macro.start,
                 });
             } else {
-                pair.hasElse = true;
-                pair.elseIndex = macro.index;
-                macro.scope = { role: "else", pairIndex: open.scope.pairIndex, depth: match };
+                pendingElse.set(openPos, { elsePos: i, depth: match });
             }
             continue;
         }
