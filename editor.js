@@ -930,10 +930,10 @@ function countAllMacros() {
     let active = 0, errors = 0, warnings = 0;
     for (const o of order) {
         const p = prompts.get(o.identifier);
-        // ST-supplied (marker id) content is replaced with runtime data, so it
-        // is never evaluated — excluded here (the viewer still counts the
-        // stored text, since it reports on the file, not on ST behavior).
-        if (!p || p.marker || isMarkerPromptId(o.identifier)) continue;
+        // Marker is just a label: stored content counts like any other
+        // prompt, matching the viewer (both report on the file, not on
+        // what ST evaluates at runtime).
+        if (!p) continue;
         const a = analyzeMacros(p.content ?? "", { kind: "prompt", enabled: o.enabled });
         if (o.enabled) {
             active += a.stats.total;
