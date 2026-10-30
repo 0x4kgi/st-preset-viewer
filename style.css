@@ -328,7 +328,9 @@ summary::before {
     transition: transform 0.12s ease;
 }
 
-details[open] summary::before {
+/* Direct children only: nested <details> must not inherit the parent's
+   open state, or a closed block inside an open card looks expanded. */
+details[open] > summary::before {
     transform: rotate(90deg);
 }
 
@@ -786,7 +788,88 @@ details[hidden] {
     padding-left: 5px;
 }
 
+/* ---------- Shorthand variable groups ---------- */
+
+.macro-var-groups {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 9px;
+}
+
+/* Chip-sized summary, no card chrome: the group is a filter, not a section. */
+.macro-var-group,
+.macro-var-group[open] {
+    width: auto;
+    max-width: 100%;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+}
+
+.macro-var-group > summary {
+    padding: 3px 9px 3px 7px;
+    gap: 6px;
+    font-size: 0.72rem;
+    border: 1px dashed color-mix(in srgb, var(--cat-variable) 55%, var(--border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--cat-variable) 9%, transparent);
+}
+
+.macro-var-group > summary:hover {
+    border-color: var(--cat-variable);
+}
+
+.var-group-label {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.var-group-count {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-faint);
+}
+
+.var-group-chips {
+    margin-top: 6px;
+    padding-left: 10px;
+    border-left: 1px dashed var(--border-strong);
+}
+
 /* ---------- Conditional blocks ---------- */
+
+.macro-if-group {
+    margin-top: 10px;
+}
+
+.macro-if-group,
+.macro-if-group[open] {
+    border: 1px dashed var(--border-strong);
+    border-left-width: 1px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+}
+
+.macro-if-group > summary {
+    padding: 5px 9px;
+    gap: 6px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.macro-if-count {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-faint);
+}
+
+.macro-if-group .macro-blocks {
+    margin-top: 2px;
+    padding: 0 8px 8px;
+}
 
 .macro-blocks {
     display: flex;

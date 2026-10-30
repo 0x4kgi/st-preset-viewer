@@ -1832,12 +1832,18 @@ export function analyzeMacros(text, options = {}) {
                 known: macro.known,
                 extension: macro.extension,
                 dynamic: macro.dynamic,
+                isVariable: false,
+                variableScope: null,
                 newEngineOnly: false,
                 count: 0,
                 comments: 0,
             };
         }
         item.count++;
+        if (macro.isVariable) {
+            item.isVariable = true;
+            item.variableScope = macro.variable?.scope === "global" ? "global" : "local";
+        }
         item.newEngineOnly ||= macro.newEngineOnly;
         if (macro.isComment) {
             item.comments++;
@@ -1845,6 +1851,15 @@ export function analyzeMacros(text, options = {}) {
         }
         if (macro.newEngineOnly) newEngineOnly++;
         categories[macro.category] = (categories[macro.category] ?? 0) + 1;
+    }
+
+    // Shorthand variable notations (`.name` / `$name`) are collected per
+    // scope so a prompt that leans on them can present two collapsible
+    // groups instead of dozens of chips.
+    const shorthandVars = { local: [], global: [] };
+    for (const item of Object.values(byName)) {
+        if (!item.isVariable) continue;
+        shorthandVars[item.variableScope === "global" ? "global" : "local"].push(item);
     }
 
     const conditionals = [];
@@ -1896,6 +1911,7 @@ export function analyzeMacros(text, options = {}) {
             extension: allMacros.filter(macro => macro.availability === "ext").length,
             dynamic: allMacros.filter(macro => macro.dynamic).length,
             byName,
+            shorthandVars,
             categories,
             names: Object.keys(byName),
         },

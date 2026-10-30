@@ -229,6 +229,18 @@ function compactPreview(value, limit = 160) {
 }
 
 function macroChipTitle(item) {
+    // Shorthand variables are not calls: `{{...}}` around the name would be
+    // wrong, and there is no registry entry to describe them.
+    if (item.isVariable) {
+        const scope = item.variableScope === "global" ? "global" : "local";
+        return [
+            item.name,
+            `${scope === "global" ? "Global" : "Local"} variable shorthand.`,
+            "Reads, sets, or updates the variable; the value is resolved at runtime.",
+            "New macro engine only (default since ST 1.17.0).",
+        ].join("\n");
+    }
+
     const def = getMacroDefinition(item.name);
     const lines = [`{{${item.name}}}`];
     const category = MACRO_CATEGORIES[item.category];
@@ -273,6 +285,10 @@ function createMacroChip(item) {
 
     chip.append(dot, name, count);
 
+    // Shorthand variables live inside a scoped group whose summary already
+    // carries the "new" flag; repeating it on every chip is just noise.
+    if (item.isVariable) return chip;
+
     if (item.newEngineOnly) {
         const flag = document.createElement("span");
         flag.className = "macro-chip-flag";
@@ -296,6 +312,46 @@ function createMacroChip(item) {
     }
 
     return chip;
+}
+
+/**
+ * One collapsible group of shorthand variables (`$global` or `.local`).
+ * The summary stays chip-sized; the actual names only appear once opened.
+ */
+function createVariableGroup(scope, items) {
+    const details = document.createElement("details");
+    details.className = "macro-var-group";
+
+    const summary = document.createElement("summary");
+
+    const dot = document.createElement("span");
+    dot.className = "macro-dot";
+
+    const label = document.createElement("span");
+    label.className = "var-group-label";
+    label.textContent = scope === "global" ? "global variables" : "local variables";
+
+    const uses = items.reduce((sum, item) => sum + item.count, 0);
+    const count = document.createElement("span");
+    count.className = "var-group-count";
+    count.textContent = `${formatCount(items.length)} ${plural(items.length, "name")}`
+        + ` · ${formatCount(uses)} ${plural(uses, "use")}`;
+
+    const flag = document.createElement("span");
+    flag.className = "macro-chip-flag";
+    flag.textContent = "new";
+
+    summary.append(dot, label, count, flag);
+    summary.title = scope === "global"
+        ? "Global variable shorthands ($name). Click to list the variables this prompt touches."
+        : "Local variable shorthands (.name). Click to list the variables this prompt touches.";
+
+    const chips = document.createElement("div");
+    chips.className = "macro-chips var-group-chips";
+    items.forEach(item => chips.appendChild(createMacroChip(item)));
+
+    details.append(summary, chips);
+    return details;
 }
 
 function appendTextWithCode(parent, text) {
@@ -479,21 +535,59 @@ function createMacroPanel(analysis, options = {}) {
     }
 
     if (analysis.stats.total > 0) {
-        const chips = document.createElement("div");
-        chips.className = "macro-chips";
         const items = Object.values(analysis.stats.byName)
             .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-        for (const item of items) chips.appendChild(createMacroChip(item));
-        panel.appendChild(chips);
+
+        // Regular macros keep a chip each. Shorthand variables are folded
+        // into one clickable group per scope, so a prompt that uses a lot of
+        // them cannot flood the panel with dozens of chips.
+        const regular = items.filter(item => !item.isVariable);
+        if (regular.length > 0) {
+            const chips = document.createElement("div");
+            chips.className = "macro-chips";
+            for (const item of regular) chips.appendChild(createMacroChip(item));
+            panel.appendChild(chips);
+        }
+
+        const groups = document.createElement("div");
+        groups.className = "macro-var-groups";
+        for (const scope of ["local", "global"]) {
+            const scoped = (analysis.stats.shorthandVars?.[scope] ?? [])
+                .slice()
+                .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+            if (scoped.length > 0) groups.appendChild(createVariableGroup(scope, scoped));
+        }
+        if (groups.children.length > 0) panel.appendChild(groups);
     }
 
     if (analysis.conditionals.length > 0) {
+        const inlineCount = analysis.conditionals.filter(conditional => conditional.mode === "inline").length;
+
+        // Collapsed by default: even a handful of {{if}} blocks otherwise
+        // dominates the panel.
+        const group = document.createElement("details");
+        group.className = "macro-if-group";
+
+        const summary = document.createElement("summary");
+        const label = document.createElement("span");
+        label.textContent = "If blocks";
+
+        const count = document.createElement("span");
+        count.className = "macro-if-count";
+        count.textContent = formatCount(analysis.conditionals.length)
+            + (inlineCount > 0 ? ` · ${formatCount(inlineCount)} inline` : "");
+
+        summary.append(label, count);
+        summary.title = "Every {{if}} in this field. Open one to preview its branches.";
+
         const blocks = document.createElement("div");
         blocks.className = "macro-blocks";
         for (const conditional of analysis.conditionals) {
             blocks.appendChild(createConditionalBlock(conditional, analysis.text));
         }
-        panel.appendChild(blocks);
+
+        group.append(summary, blocks);
+        panel.appendChild(group);
     }
 
     return panel;
