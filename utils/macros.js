@@ -1771,10 +1771,12 @@ export function analyzeMacros(text, options = {}) {
 
     // Fold nested-document issues into this document. Their offsets are
     // relative to the parent's `inner`, so shift them into parent space.
+    // New-engine use is the default since ST 1.17: never surface it as a
+    // warning, at any nesting level.
     for (const macro of macros) {
         if (!macro.nestedIssues) continue;
         for (const issue of macro.nestedIssues) {
-            if (issue.code === "new-engine") continue; // one aggregate issue below
+            if (issue.code === "new-engine") continue;
             issues.push({
                 ...issue,
                 start: (issue.start ?? 0) + macro.nestedOffset,
@@ -1794,22 +1796,6 @@ export function analyzeMacros(text, options = {}) {
     };
 
     const allMacros = flatten(macros);
-
-    const newEngineNames = [...new Set(
-        allMacros
-            .filter(macro => macro.newEngineOnly && !macro.malformed)
-            .map(macro => macro.name),
-    )];
-
-    if (newEngineNames.length > 0 && expanded) {
-        issues.push({
-            code: "new-engine",
-            severity: "warning",
-            message: `Uses new-engine-only macro${newEngineNames.length === 1 ? "" : "s"}: ${newEngineNames.map(name => `{{${name}}}`).join(", ")}. These stay literal when \`experimental_macro_engine\` is false.`,
-            macroIndex: null,
-            start: 0,
-        });
-    }
 
     // Stable, useful ordering: errors before warnings, then source order.
     const severityRank = { error: 0, warning: 1, info: 2 };
