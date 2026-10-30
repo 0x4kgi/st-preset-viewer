@@ -1,24 +1,26 @@
 import { downloadMarkdown } from "./utils/markdown.js";
 import { extractFilename } from "./utils/download.js";
+import {
+    MACRO_CATEGORIES,
+    analyzeMacros,
+    availabilityLabel,
+    getMacroDefinition,
+    getMacroField,
+} from "./utils/macros.js";
+import {
+    MACRO_FIELD_KEY_SET,
+    MACRO_FIELD_KEYS,
+    OPTIONAL_MACRO_FIELD_KEYS,
+    ST_SUPPLIED_SOURCES,
+    STRUCTURAL_KEYS,
+    findActiveOrderEntry,
+    isDefaultPromptId,
+    isJsonAPreset,
+    isMarkerPromptId,
+    syncFileInput,
+} from "./utils/preset.js";
 
 "use strict";
-
-// keys in the preset that ARE always present no matter what
-// the default preset from ST always comes with these keys
-// so it's safe to assume
-const UTILITY_PROMPTS_KEYS = [
-    "impersonation_prompt",
-    "new_chat_prompt",
-    "new_group_chat_prompt",
-    "new_example_chat_prompt",
-    "continue_nudge_prompt",
-    "wi_format",
-    "scenario_format",
-    "personality_format",
-    "group_nudge_prompt",
-    "prompts",
-    "prompt_order",
-];
 
 const mainContainer = document.getElementById("main");
 const loadButton = document.getElementById("load-button");
@@ -35,14 +37,37 @@ const emptyState = document.getElementById("empty-state");
 // identifier: { content, name, role, booleans }
 let prompts = {};
 
-// [ { enabled, identifier }, ... ]
+// [ { enabled, identifier }, ... ] — the active prompt_order entry
 let promptOrder = [];
 
-// key: string content for the 9 plain-text utility prompts
+// prompts that exist in `prompts` but are absent from the active order
+let orphanPrompts = [];
+
+// key: string content for the plain-text utility prompts
 let utilityPrompts = {};
 
 // everything else in the file (samplers, models, toggles, ...)
 let restJson = {};
+
+// Macro analysis, one independent document per prompt entry / utility field.
+let promptAnalyses = new Map();
+let utilityAnalyses = new Map();
+
+// Aggregate counts for the active fields (for the stats bar / legend).
+let macroTotals = {
+    active: 0,
+    disabled: 0,
+    names: 0,
+    literal: 0,
+    comments: 0,
+    errors: 0,
+    warnings: 0,
+    newEngineOnly: 0,
+    unknown: 0,
+    extension: 0,
+    dynamic: 0,
+    categories: Object.create(null),
+};
 
 // which prompt_order entry we actually rendered (100001 > 100000 > last)
 let activeOrderCharacterId = null;
@@ -52,12 +77,6 @@ let activeOrderCharacterId = null;
 // entry point (picker, drop, reload, export) goes through this.
 let currentFile = null;
 
-function isJsonAPreset(json) {
-    const jsonKeys = Object.keys(json);
-
-    return UTILITY_PROMPTS_KEYS.every(key => jsonKeys.includes(key));
-}
-
 function makeBadge(text, className = "") {
     const span = document.createElement("span");
     span.className = `badge ${className}`.trim();
@@ -65,14 +84,577 @@ function makeBadge(text, className = "") {
     return span;
 }
 
-function createPromptSections(identifier, enabledOverride) {
+function formatCount(value) {
+    return Number(value || 0).toLocaleString();
+}
+
+function plural(value, singular, pluralForm = `${singular}s`) {
+    return value === 1 ? singular : pluralForm;
+}
+
+function createMacroBadgeGroup(analysis, enabled) {
+    const frag = document.createDocumentFragment();
+    if (!analysis) return frag;
+
+    const { total, comments, errors, warnings } = analysis.stats;
+
+    if (total > 0) {
+        const badge = makeBadge(
+            `${formatCount(total)} ${plural(total, "macro")}`,
+            "badge-macro",
+        );
+        badge.title = `${formatCount(total)} macro invocation${total === 1 ? "" : "s"} in this field`
+            + (comments ? `, ${formatCount(comments)} comment${comments === 1 ? "" : "s"}` : "")
+            + (enabled ? "" : " (not evaluated)");
+        if (!enabled) badge.classList.add("badge-macro-muted");
+        frag.appendChild(badge);
+    }
+
+    if (!analysis.expanded) {
+        const badge = makeBadge("not expanded", "badge-literal");
+        badge.title = "SillyTavern does not macro-expand this field.";
+        frag.appendChild(badge);
+    }
+
+    if (errors > 0) {
+        const badge = makeBadge(
+            `${formatCount(errors)} ${plural(errors, "error")}`,
+            "badge-error",
+        );
+        badge.title = "These macros cannot resolve as written.";
+        frag.appendChild(badge);
+    } else if (warnings > 0) {
+        const badge = makeBadge(
+            `${formatCount(warnings)} ${plural(warnings, "warning")}`,
+            "badge-warn",
+        );
+        badge.title = "These macros resolve only in a specific engine, field, or extension.";
+        frag.appendChild(badge);
+    }
+
+    return frag;
+}
+
+function macroTitle(macro, expanded) {
+    const lines = [];
+
+    if (macro.malformed) {
+        lines.push(macro.malformed.message);
+    } else if (macro.isComment) {
+        lines.push("Comment. Removed from the output.");
+    } else if (macro.isVariable) {
+        lines.push(`Variable shorthand (${macro.variable?.scope ?? "local"}).`);
+    } else if (macro.isClosing) {
+        lines.push(`Closing tag for {{${macro.name}}}.`);
+    } else {
+        lines.push(macro.name ? `{{${macro.name}}}` : "Malformed macro.");
+    }
+
+    const category = MACRO_CATEGORIES[macro.category];
+    if (category) lines.push(category.label);
+
+    const def = getMacroDefinition(macro.name);
+    if (def && !macro.malformed) {
+        lines.push(availabilityLabel(def));
+        if (def.description) lines.push(def.description);
+    }
+
+    if (macro.known && macro.availability === "ext") {
+        lines.push(`Only works when ${macro.extension} is loaded and enabled.`);
+    }
+
+    if (macro.dynamic) {
+        lines.push("Supplied only for continue_nudge_prompt.");
+    }
+
+    if (macro.newEngineOnly) {
+        lines.push("New macro engine only (default since ST 1.17.0).");
+    }
+
+    if (macro.scope?.role === "open") {
+        lines.push(`Scoped block; pairs with {{/${macro.name}}}.`);
+    }
+
+    if (!expanded) {
+        lines.push("This field is not macro-expanded by ST; the text stays literal.");
+    }
+
+    return lines.join("\n");
+}
+
+function createMacroSpan(macro, expanded) {
+    const span = document.createElement("span");
+    span.className = `macro-hl cat-${macro.category}`;
+
+    if (macro.isComment) span.classList.add("macro-hl-comment");
+    if (macro.isClosing) span.classList.add("macro-hl-closing");
+    if (macro.isVariable) span.classList.add("macro-hl-variable");
+    if (macro.scope?.role === "open") span.classList.add("macro-hl-scope");
+    if (macro.malformed) span.classList.add("macro-hl-invalid");
+    if (macro.known && macro.availability === "unknown") span.classList.add("macro-hl-unknown");
+    if (macro.known && macro.availability === "ext") span.classList.add("macro-hl-extension");
+    if (macro.dynamic) span.classList.add("macro-hl-dynamic");
+    if (!expanded) span.classList.add("macro-hl-literal");
+
+    span.textContent = macro.raw;
+    span.title = macroTitle(macro, expanded);
+    span.dataset.macroName = macro.lowerName || "";
+
+    return span;
+}
+
+function createHighlightedContent(text, analysis, { expanded = true } = {}) {
+    const pre = document.createElement("pre");
+    pre.className = "prompt-content";
+
+    if (!analysis || !Array.isArray(analysis.segments) || analysis.segments.length === 0) {
+        pre.textContent = text;
+        return pre;
+    }
+
+    for (const segment of analysis.segments) {
+        if (segment.type === "text") {
+            pre.appendChild(document.createTextNode(segment.text));
+        } else {
+            pre.appendChild(createMacroSpan(segment.macro, expanded));
+        }
+    }
+
+    return pre;
+}
+
+function compactPreview(value, limit = 160) {
+    const compact = String(value ?? "").replace(/\s+/g, " ").trim();
+    return compact.length > limit ? `${compact.slice(0, limit)}…` : compact;
+}
+
+function macroChipTitle(item) {
+    // Shorthand variables are not calls: `{{...}}` around the name would be
+    // wrong, and there is no registry entry to describe them.
+    if (item.isVariable) {
+        const scope = item.variableScope === "global" ? "global" : "local";
+        return [
+            item.name,
+            `${scope === "global" ? "Global" : "Local"} variable shorthand.`,
+            "Reads, sets, or updates the variable; the value is resolved at runtime.",
+            "New macro engine only (default since ST 1.17.0).",
+        ].join("\n");
+    }
+
+    const def = getMacroDefinition(item.name);
+    const lines = [`{{${item.name}}}`];
+    const category = MACRO_CATEGORIES[item.category];
+    if (category) lines.push(category.label);
+
+    if (def) {
+        lines.push(availabilityLabel(def));
+        if (def.description) lines.push(def.description);
+    } else if (!item.known) {
+        lines.push("Unknown in the 1.19.0 registry; ST leaves it literal unless an extension registers it.");
+    }
+
+    if (item.extension) lines.push(`Requires ${item.extension}.`);
+    if (item.dynamic) lines.push("Supplied only for continue_nudge_prompt.");
+    if (item.newEngineOnly) lines.push("New macro engine only (default since ST 1.17.0).");
+    if (item.comments) lines.push(`${item.comments} comment${item.comments === 1 ? "" : "s"}.`);
+
+    return lines.join("\n");
+}
+
+function createMacroChip(item) {
+    const chip = document.createElement("span");
+    chip.className = `macro-chip cat-${item.category}`;
+    chip.title = macroChipTitle(item);
+
+    if (!item.known) chip.classList.add("is-unknown");
+    if (item.comments) chip.classList.add("is-comment");
+    if (item.extension) chip.classList.add("is-extension");
+    if (item.dynamic) chip.classList.add("is-dynamic");
+    if (item.newEngineOnly) chip.classList.add("is-new");
+
+    const dot = document.createElement("span");
+    dot.className = "macro-dot";
+
+    const name = document.createElement("code");
+    name.className = "macro-chip-name";
+    name.textContent = item.name;
+
+    const count = document.createElement("span");
+    count.className = "macro-chip-count";
+    count.textContent = `×${formatCount(item.count)}`;
+
+    chip.append(dot, name, count);
+
+    // Shorthand variables live inside a scoped group whose summary already
+    // carries the "new" flag; repeating it on every chip is just noise.
+    if (item.isVariable) return chip;
+
+    if (item.newEngineOnly) {
+        const flag = document.createElement("span");
+        flag.className = "macro-chip-flag";
+        flag.textContent = "new";
+        chip.appendChild(flag);
+    } else if (item.extension) {
+        const flag = document.createElement("span");
+        flag.className = "macro-chip-flag";
+        flag.textContent = "ext";
+        chip.appendChild(flag);
+    } else if (item.dynamic) {
+        const flag = document.createElement("span");
+        flag.className = "macro-chip-flag";
+        flag.textContent = "dyn";
+        chip.appendChild(flag);
+    } else if (!item.known) {
+        const flag = document.createElement("span");
+        flag.className = "macro-chip-flag";
+        flag.textContent = "?";
+        chip.appendChild(flag);
+    }
+
+    return chip;
+}
+
+/**
+ * One collapsible group of shorthand variables (`$global` or `.local`).
+ * The summary stays chip-sized; the actual names only appear once opened.
+ */
+function createVariableGroup(scope, items) {
+    const details = document.createElement("details");
+    details.className = "macro-var-group";
+
+    const summary = document.createElement("summary");
+
+    const dot = document.createElement("span");
+    dot.className = "macro-dot";
+
+    const label = document.createElement("span");
+    label.className = "var-group-label";
+    label.textContent = scope === "global" ? "global variables" : "local variables";
+
+    const uses = items.reduce((sum, item) => sum + item.count, 0);
+    const count = document.createElement("span");
+    count.className = "var-group-count";
+    count.textContent = `${formatCount(items.length)} ${plural(items.length, "name")}`
+        + ` · ${formatCount(uses)} ${plural(uses, "use")}`;
+
+    const flag = document.createElement("span");
+    flag.className = "macro-chip-flag";
+    flag.textContent = "new";
+
+    summary.append(dot, label, count, flag);
+    summary.title = scope === "global"
+        ? "Global variable shorthands ($name). Click to list the variables this prompt touches."
+        : "Local variable shorthands (.name). Click to list the variables this prompt touches.";
+
+    const chips = document.createElement("div");
+    chips.className = "macro-chips var-group-chips";
+    items.forEach(item => chips.appendChild(createMacroChip(item)));
+
+    details.append(summary, chips);
+    return details;
+}
+
+function appendTextWithCode(parent, text) {
+    const parts = String(text).split("`");
+    parts.forEach((part, index) => {
+        if (index % 2 === 1) {
+            const code = document.createElement("code");
+            code.textContent = part;
+            parent.appendChild(code);
+        } else if (part) {
+            parent.appendChild(document.createTextNode(part));
+        }
+    });
+}
+
+function createIssueItem(issue) {
+    const li = document.createElement("li");
+    li.className = `macro-issue issue-${issue.severity}`;
+    li.title = issue.message;
+
+    const severity = document.createElement("span");
+    severity.className = "issue-severity";
+    severity.textContent = issue.severity;
+
+    const location = document.createElement("span");
+    location.className = "issue-location";
+    location.textContent = issue.line ? `L${issue.line}:${issue.column}` : "";
+
+    const message = document.createElement("span");
+    message.className = "issue-message";
+    appendTextWithCode(message, issue.message);
+
+    li.append(severity, location, message);
+    return li;
+}
+
+function createConditionalBlock(conditional, text) {
+    const details = document.createElement("details");
+    details.className = "macro-block";
+
+    const summary = document.createElement("summary");
+    const kind = document.createElement("span");
+    kind.className = "block-kind";
+    kind.textContent = conditional.mode === "block" ? "if block" : "if inline";
+
+    const condition = document.createElement("code");
+    condition.className = "block-condition";
+    condition.textContent = conditional.condition?.trim() || "(no condition)";
+
+    const meta = document.createElement("span");
+    meta.className = "block-meta";
+    meta.textContent = conditional.mode === "block"
+        ? `${conditional.pair.branches.length} branch${conditional.pair.branches.length === 1 ? "" : "es"}`
+        : "then →";
+
+    summary.append(kind, condition, meta);
+    details.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "block-branches";
+
+    if (conditional.mode === "block") {
+        for (const branch of conditional.pair.branches) {
+            const value = text.slice(branch.start, branch.end);
+            const row = document.createElement("div");
+            row.className = "block-branch";
+
+            const label = document.createElement("span");
+            label.className = "branch-label";
+            label.textContent = branch.kind;
+
+            const size = document.createElement("span");
+            size.className = "branch-size";
+            size.textContent = `${formatCount(value.length)} chars`;
+
+            const preview = document.createElement("pre");
+            preview.className = "branch-preview";
+            preview.textContent = compactPreview(value);
+
+            row.append(label, size, preview);
+            body.appendChild(row);
+        }
+    } else {
+        const row = document.createElement("div");
+        row.className = "block-branch";
+
+        const label = document.createElement("span");
+        label.className = "branch-label";
+        label.textContent = "then";
+
+        const preview = document.createElement("pre");
+        preview.className = "branch-preview";
+        preview.textContent = compactPreview(conditional.then);
+
+        row.append(label, preview);
+        body.appendChild(row);
+    }
+
+    details.appendChild(body);
+    return details;
+}
+
+function createMacroPanel(analysis, options = {}) {
+    if (!analysis || (analysis.stats.total === 0 && !options.nameMacroCount)) return null;
+
+    const {
+        enabled = true,
+        inOrder = true,
+        marker = false,
+        fieldInfo = null,
+        nameMacroCount = 0,
+    } = options;
+
+    const panel = document.createElement("div");
+    panel.className = "macro-panel";
+    if (!enabled || !inOrder) panel.classList.add("macro-panel-muted");
+
+    const head = document.createElement("div");
+    head.className = "macro-head";
+
+    const title = document.createElement("span");
+    title.className = "macro-title";
+    title.textContent = "Macros ";
+
+    const total = document.createElement("span");
+    total.className = "macro-total";
+    total.textContent = formatCount(analysis.stats.total);
+    title.appendChild(total);
+
+    const meta = document.createElement("span");
+    meta.className = "macro-meta";
+
+    const metaBits = [];
+    if (analysis.stats.names.length) {
+        metaBits.push(`${analysis.stats.names.length} ${plural(analysis.stats.names.length, "name")}`);
+    }
+    if (analysis.stats.comments) {
+        metaBits.push(`${formatCount(analysis.stats.comments)} ${plural(analysis.stats.comments, "comment")}`);
+    }
+    if (analysis.scopes.length) {
+        metaBits.push(`${analysis.scopes.length} ${plural(analysis.scopes.length, "block")}`);
+    }
+    meta.textContent = metaBits.join(" · ");
+
+    head.append(title, meta);
+    panel.appendChild(head);
+
+    const notes = [];
+    if (!inOrder) {
+        notes.push("This prompt is not in the active prompt_order, so ST does not evaluate it.");
+    } else if (!enabled) {
+        notes.push("This entry is disabled in the active prompt order, so these macros do not run.");
+    }
+    if (marker) {
+        notes.push("Marker prompt: its content is evaluated, but ST replaces the output with runtime data.");
+    }
+    if (fieldInfo?.note) {
+        notes.push(fieldInfo.note);
+    }
+    if (nameMacroCount > 0) {
+        notes.push("The prompt name contains macro-like text, but ST does not expand prompt names.");
+    }
+    if (analysis.allMacros.length > analysis.macros.length) {
+        notes.push("Nested invocations inside arguments or comments are counted here but not highlighted separately.");
+    }
+
+    for (const note of notes) {
+        const p = document.createElement("p");
+        p.className = "macro-note";
+        p.textContent = note;
+        panel.appendChild(p);
+    }
+
+    if (analysis.issues.length > 0) {
+        const list = document.createElement("ul");
+        list.className = "macro-issues";
+        for (const issue of analysis.issues) {
+            list.appendChild(createIssueItem(issue));
+        }
+        panel.appendChild(list);
+    }
+
+    if (analysis.stats.total > 0) {
+        const items = Object.values(analysis.stats.byName)
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+        // Regular macros keep a chip each. Shorthand variables are folded
+        // into one clickable group per scope, so a prompt that uses a lot of
+        // them cannot flood the panel with dozens of chips.
+        const regular = items.filter(item => !item.isVariable);
+        if (regular.length > 0) {
+            const chips = document.createElement("div");
+            chips.className = "macro-chips";
+            for (const item of regular) chips.appendChild(createMacroChip(item));
+            panel.appendChild(chips);
+        }
+
+        const groups = document.createElement("div");
+        groups.className = "macro-var-groups";
+        for (const scope of ["local", "global"]) {
+            const scoped = (analysis.stats.shorthandVars?.[scope] ?? [])
+                .slice()
+                .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+            if (scoped.length > 0) groups.appendChild(createVariableGroup(scope, scoped));
+        }
+        if (groups.children.length > 0) panel.appendChild(groups);
+    }
+
+    if (analysis.conditionals.length > 0) {
+        const inlineCount = analysis.conditionals.filter(conditional => conditional.mode === "inline").length;
+
+        // Collapsed by default: even a handful of {{if}} blocks otherwise
+        // dominates the panel.
+        const group = document.createElement("details");
+        group.className = "macro-if-group";
+
+        const summary = document.createElement("summary");
+        const label = document.createElement("span");
+        label.textContent = "If blocks";
+
+        const count = document.createElement("span");
+        count.className = "macro-if-count";
+        count.textContent = formatCount(analysis.conditionals.length)
+            + (inlineCount > 0 ? ` · ${formatCount(inlineCount)} inline` : "");
+
+        summary.append(label, count);
+        summary.title = "Every {{if}} in this field. Open one to preview its branches.";
+
+        const blocks = document.createElement("div");
+        blocks.className = "macro-blocks";
+        for (const conditional of analysis.conditionals) {
+            blocks.appendChild(createConditionalBlock(conditional, analysis.text));
+        }
+
+        group.append(summary, blocks);
+        panel.appendChild(group);
+    }
+
+    return panel;
+}
+
+function renderLegend() {
+    const slot = document.getElementById("macro-legend-slot");
+    if (!slot) return;
+
+    slot.innerHTML = "";
+    slot.hidden = true;
+
+    const entries = Object.entries(macroTotals.categories)
+        .filter(([category]) => MACRO_CATEGORIES[category])
+        .sort((a, b) => b[1] - a[1]);
+
+    if (entries.length === 0) return;
+
+    const details = document.createElement("details");
+    details.className = "macro-legend";
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Macro legend · ${entries.length} ${plural(entries.length, "category", "categories")}`;
+    details.appendChild(summary);
+
+    const items = document.createElement("div");
+    items.className = "legend-items";
+
+    for (const [category, count] of entries) {
+        const item = document.createElement("span");
+        item.className = `legend-item cat-${category}`;
+
+        const dot = document.createElement("span");
+        dot.className = "legend-dot";
+
+        const label = document.createElement("span");
+        label.textContent = MACRO_CATEGORIES[category].label;
+
+        const total = document.createElement("span");
+        total.className = "legend-count";
+        total.textContent = formatCount(count);
+
+        item.append(dot, label, total);
+        items.appendChild(item);
+    }
+
+    details.appendChild(items);
+
+    const note = document.createElement("p");
+    note.className = "legend-note";
+    note.textContent = "new = new engine only · ext = requires an extension · ? = unknown · comments are counted but muted";
+    details.appendChild(note);
+
+    slot.appendChild(details);
+    slot.hidden = false;
+}
+
+function createPromptSections(identifier, enabledOverride, options = {}) {
     const prompt = prompts[identifier];
 
     if (!prompt) return null;
 
+    const { inOrder = true } = options;
     const enabled = enabledOverride ?? prompt.enabled;
     const content = prompt.content ?? "";
     const charCount = content.length;
+    const analysis = promptAnalyses.get(identifier) ?? null;
 
     const elemDetails = document.createElement("details");
     const elemSummary = document.createElement("summary");
@@ -82,6 +664,9 @@ function createPromptSections(identifier, enabledOverride) {
     const nameEl = document.createElement("span");
     nameEl.className = "prompt-name";
     nameEl.textContent = prompt.name || identifier;
+    if (analysis?.stats.total) {
+        nameEl.title = `${prompt.name || identifier} — ${formatCount(analysis.stats.total)} macro invocation${analysis.stats.total === 1 ? "" : "s"}`;
+    }
 
     const badgesEl = document.createElement("span");
     badgesEl.className = "badges";
@@ -89,11 +674,17 @@ function createPromptSections(identifier, enabledOverride) {
     if (prompt.role && prompt.role !== "system") {
         badgesEl.appendChild(makeBadge(prompt.role, `badge-role-${prompt.role}`));
     }
-    if (!enabled) badgesEl.appendChild(makeBadge("disabled", "badge-disabled"));
-    if (prompt.marker) badgesEl.appendChild(makeBadge("builtin", "badge-marker"));
+    if (!inOrder) {
+        badgesEl.appendChild(makeBadge("not in order", "badge-orphan"));
+    } else if (!enabled) {
+        badgesEl.appendChild(makeBadge("disabled", "badge-disabled"));
+    }
+    if (prompt.marker) badgesEl.appendChild(makeBadge("marker", "badge-marker"));
+    if (isDefaultPromptId(identifier)) badgesEl.appendChild(makeBadge("default", "badge-default"));
     if (prompt.injection_position > 0) {
         badgesEl.appendChild(makeBadge(`in-chat @${prompt.injection_depth}`, "badge-injected"));
     }
+    badgesEl.appendChild(createMacroBadgeGroup(analysis, enabled && inOrder));
 
     elemSummary.append(nameEl, badgesEl);
     elemDetails.appendChild(elemSummary);
@@ -124,10 +715,31 @@ function createPromptSections(identifier, enabledOverride) {
 
     toolsEl.append(countEl, copyBtn);
 
-    const elemPromptContent = document.createElement("pre");
-    elemPromptContent.textContent = content;
+    const macroPanel = createMacroPanel(analysis, {
+        enabled,
+        inOrder,
+        marker: !!prompt.marker,
+        nameMacroCount: prompt.nameMacroCount ?? 0,
+    });
 
-    bodyEl.append(toolsEl, elemPromptContent);
+    const elemPromptContent = createHighlightedContent(content, analysis, {
+        expanded: analysis?.expanded !== false,
+    });
+
+    // ST-supplied content is not editable and usually not even stored:
+    // show an indication instead of the tools / preview area.
+    if (isMarkerPromptId(identifier)) {
+        const suppliedNote = document.createElement("p");
+        suppliedNote.className = "macro-note";
+        const source = ST_SUPPLIED_SOURCES[identifier] ?? "runtime data (extension prompt)";
+        suppliedNote.textContent =
+            `Content is supplied by ST at runtime (${source}) \u2014 nothing stored in the preset to show.`;
+        bodyEl.append(suppliedNote);
+    } else {
+        bodyEl.append(toolsEl);
+        if (macroPanel) bodyEl.append(macroPanel);
+        bodyEl.append(elemPromptContent);
+    }
     elemDetails.appendChild(bodyEl);
 
     elemDetails.classList.add(`role-${prompt.role}`);
@@ -140,8 +752,13 @@ function createPromptSections(identifier, enabledOverride) {
         elemDetails.classList.add("injected");
     }
 
-    // searchable index for filtering (name + content, lowercased)
-    elemDetails.dataset.search = `${prompt.name} ${content}`.toLowerCase();
+    if (!inOrder) {
+        elemDetails.classList.add("prompt-orphan");
+    }
+
+    // searchable index for filtering (name + content + macro names)
+    const macroSearch = analysis ? analysis.stats.names.join(" ") : "";
+    elemDetails.dataset.search = `${prompt.name} ${content} ${macroSearch}`.toLowerCase();
     elemDetails.dataset.role = prompt.role;
     elemDetails.classList.add("prompt-card");
 
@@ -151,6 +768,8 @@ function createPromptSections(identifier, enabledOverride) {
 function createUtilityPromptDetails(key, value) {
     const content = value ?? "";
     const charCount = content.length;
+    const fieldInfo = getMacroField(key);
+    const analysis = utilityAnalyses.get(key) ?? null;
 
     const elemDetails = document.createElement("details");
     elemDetails.classList.add("prompt-card", "utility-prompt");
@@ -161,6 +780,11 @@ function createUtilityPromptDetails(key, value) {
     nameEl.className = "prompt-name";
     nameEl.textContent = key;
     elemSummary.appendChild(nameEl);
+
+    const badgesEl = document.createElement("span");
+    badgesEl.className = "badges";
+    badgesEl.appendChild(createMacroBadgeGroup(analysis, fieldInfo.expanded));
+    elemSummary.appendChild(badgesEl);
     elemDetails.appendChild(elemSummary);
 
     const bodyEl = document.createElement("div");
@@ -189,14 +813,24 @@ function createUtilityPromptDetails(key, value) {
 
     toolsEl.append(countEl, copyBtn);
 
-    const elemContent = document.createElement("pre");
-    elemContent.textContent = content;
+    const macroPanel = createMacroPanel(analysis, {
+        enabled: true,
+        inOrder: true,
+        fieldInfo,
+    });
 
-    bodyEl.append(toolsEl, elemContent);
+    const elemContent = createHighlightedContent(content, analysis, {
+        expanded: fieldInfo.expanded,
+    });
+
+    bodyEl.append(toolsEl);
+    if (macroPanel) bodyEl.append(macroPanel);
+    bodyEl.append(elemContent);
     elemDetails.appendChild(bodyEl);
 
-    // searchable index for filtering (key + content, lowercased)
-    elemDetails.dataset.search = `${key} ${content}`.toLowerCase();
+    // searchable index for filtering (key + content + macro names)
+    const macroSearch = analysis ? analysis.stats.names.join(" ") : "";
+    elemDetails.dataset.search = `${key} ${content} ${macroSearch}`.toLowerCase();
     elemDetails.dataset.role = "all";
 
     return elemDetails;
@@ -217,6 +851,12 @@ function createUtilityPromptsSection() {
     nameEl.textContent = `Utility Prompts (${keys.length})`;
     const badgesEl = document.createElement("span");
     badgesEl.className = "badges";
+    const macroCount = [...utilityAnalyses.entries()]
+        .filter(([key]) => getMacroField(key).expanded)
+        .reduce((sum, [, analysis]) => sum + analysis.stats.total, 0);
+    if (macroCount > 0) {
+        badgesEl.appendChild(makeBadge(`${formatCount(macroCount)} macros`, "badge-macro"));
+    }
     badgesEl.appendChild(makeBadge("default", "badge-marker"));
     summary.append(nameEl, badgesEl);
     outer.appendChild(summary);
@@ -224,6 +864,34 @@ function createUtilityPromptsSection() {
     const bodyEl = document.createElement("div");
     bodyEl.className = "utility-list";
     keys.forEach(key => bodyEl.appendChild(createUtilityPromptDetails(key, utilityPrompts[key])));
+    outer.appendChild(bodyEl);
+
+    return outer;
+}
+
+function createOrphanPromptsSection() {
+    if (orphanPrompts.length === 0) return null;
+
+    const outer = document.createElement("details");
+    outer.id = "orphan-prompts";
+    outer.classList.add("utility-group", "orphan-group");
+    outer.dataset.nofilter = "true";
+
+    const summary = document.createElement("summary");
+    const nameEl = document.createElement("span");
+    nameEl.className = "prompt-name";
+    nameEl.textContent = `Prompts not in active order (${orphanPrompts.length})`;
+    const badgesEl = document.createElement("span");
+    badgesEl.className = "badges";
+    badgesEl.appendChild(makeBadge("not evaluated", "badge-orphan"));
+    summary.append(nameEl, badgesEl);
+    outer.appendChild(summary);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "utility-list";
+    orphanPrompts.forEach(prompt => {
+        bodyEl.appendChild(createPromptSections(prompt.identifier, false, { inOrder: false }));
+    });
     outer.appendChild(bodyEl);
 
     return outer;
@@ -302,13 +970,7 @@ function handleFile(file) {
     // Keep the <input> in sync so picker / drop / reload all agree.
     // DataTransfer assignment can throw in some browsers — currentFile
     // remains the source of truth regardless.
-    try {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-    } catch {
-        /* ignore — currentFile already holds the file */
-    }
+    syncFileInput(fileInput, file);
 
     fileNameLabel.textContent = file.name || "Selected file";
     resetEverything(false);
@@ -338,20 +1000,131 @@ async function loadPresetFromJson(file) {
     reader.readAsText(file);
 }
 
+function resetMacroTotals() {
+    return {
+        active: 0,
+        disabled: 0,
+        names: 0,
+        literal: 0,
+        comments: 0,
+        errors: 0,
+        warnings: 0,
+        newEngineOnly: 0,
+        unknown: 0,
+        extension: 0,
+        dynamic: 0,
+        categories: Object.create(null),
+    };
+}
+
 function resetEverything(clearFileLabel = true) {
     mainContainer.innerHTML = "";
     prompts = {};
     promptOrder = [];
+    orphanPrompts = [];
     utilityPrompts = {};
     restJson = {};
+    promptAnalyses = new Map();
+    utilityAnalyses = new Map();
+    macroTotals = resetMacroTotals();
     activeOrderCharacterId = null;
     markdownExportButton.setAttribute("disabled", true);
     expandAllButton.setAttribute("disabled", true);
     collapseAllButton.setAttribute("disabled", true);
     statsBar.hidden = true;
     statsBar.textContent = "";
+    statsBar.title = "";
+
+    const legendSlot = document.getElementById("macro-legend-slot");
+    if (legendSlot) {
+        legendSlot.innerHTML = "";
+        legendSlot.hidden = true;
+    }
+
     emptyState.hidden = false;
     if (clearFileLabel) fileNameLabel.textContent = "No file selected";
+}
+
+function addActiveMacroTotals(analysis) {
+    const stats = analysis.stats;
+    macroTotals.active += stats.total;
+    macroTotals.comments += stats.comments;
+    macroTotals.errors += stats.errors;
+    macroTotals.warnings += stats.warnings;
+    macroTotals.newEngineOnly += stats.newEngineOnly;
+    macroTotals.unknown += stats.unknown;
+    macroTotals.extension += stats.extension;
+    macroTotals.dynamic += stats.dynamic;
+
+    for (const [category, count] of Object.entries(stats.categories)) {
+        macroTotals.categories[category] = (macroTotals.categories[category] ?? 0) + count;
+    }
+}
+
+function computeMacroAnalyses() {
+    promptAnalyses = new Map();
+    utilityAnalyses = new Map();
+    macroTotals = resetMacroTotals();
+
+    // Ordered prompts: `prompt_order[].enabled` is what ST evaluates, not
+    // the prompt object's own `enabled` field.
+    for (const item of promptOrder) {
+        const prompt = prompts[item.identifier];
+        if (!prompt) continue;
+
+        const analysis = analyzeMacros(prompt.content ?? "", {
+            kind: "prompt",
+            enabled: item.enabled,
+        });
+        promptAnalyses.set(item.identifier, analysis);
+
+        if (item.enabled) {
+            addActiveMacroTotals(analysis);
+        } else {
+            macroTotals.disabled += analysis.stats.total;
+        }
+    }
+
+    // Prompts absent from the active order are never evaluated, even if their
+    // own `enabled` flag is true. Keep them visible; count them as not run.
+    for (const prompt of orphanPrompts) {
+        const analysis = analyzeMacros(prompt.content ?? "", {
+            kind: "prompt",
+            enabled: false,
+        });
+        promptAnalyses.set(prompt.identifier, analysis);
+        macroTotals.disabled += analysis.stats.total;
+    }
+
+    // Prompt names are labels, not substitution targets.
+    for (const prompt of Object.values(prompts)) {
+        prompt.nameMacroCount = 0;
+        if (typeof prompt.name === "string" && prompt.name.includes("{{")) {
+            const nameAnalysis = analyzeMacros(prompt.name, {
+                kind: "name",
+                expanded: false,
+            });
+            prompt.nameMacroCount = nameAnalysis.stats.total;
+            macroTotals.names += nameAnalysis.stats.total;
+        }
+    }
+
+    // Utility fields are separate documents too.
+    for (const [key, value] of Object.entries(utilityPrompts)) {
+        const fieldInfo = getMacroField(key);
+        const analysis = analyzeMacros(value ?? "", {
+            kind: "utility",
+            field: key,
+            expanded: fieldInfo.expanded,
+        });
+        utilityAnalyses.set(key, analysis);
+
+        if (fieldInfo.expanded) {
+            addActiveMacroTotals(analysis);
+        } else {
+            macroTotals.literal += analysis.stats.total;
+        }
+    }
 }
 
 function extractPresetData(json) {
@@ -361,11 +1134,12 @@ function extractPresetData(json) {
             name: prompt.name, // string
             role: prompt.role, // user, system, assistant
             system_prompt: prompt.system_prompt, // boolean, kind of redundant
-            marker: prompt.marker, // boolean, is ST builtin
+            marker: prompt.marker, // boolean, ST marker flag (freely toggleable)
             enabled: prompt.enabled, // redundant? also specified at prompt_order and that takes priority
             injection_position: prompt.injection_position, // 0 (relative) or 1 (in-chat)
             injection_depth: prompt.injection_depth, // positive? int
             forbid_overrides: prompt.forbid_overrides,
+            nameMacroCount: 0,
         }
     });
 
@@ -373,29 +1147,34 @@ function extractPresetData(json) {
      * ST loads 100001 as the default, 100000 is kept for legacy reasons,
      * and if both fails, fallback the last prompt_order[] entry.
      */
-    const orderEntry =
-        json.prompt_order.find(e => String(e.character_id) === '100001')
-        ?? json.prompt_order.find(e => String(e.character_id) === '100000')
-        ?? json.prompt_order.at(-1);
+    const { entry: orderEntry } = findActiveOrderEntry(json.prompt_order);
 
-    orderEntry.order.forEach(i => promptOrder.push(i));
-    activeOrderCharacterId = orderEntry.character_id ?? null;
+    if (orderEntry?.order) {
+        orderEntry.order.forEach(i => promptOrder.push(i));
+        activeOrderCharacterId = orderEntry.character_id ?? null;
+    }
 
-    // plain-text utility prompts (everything in UTILITY_PROMPTS_KEYS
-    // except the two structural keys)
-    UTILITY_PROMPTS_KEYS.forEach(key => {
-        if (key === "prompts" || key === "prompt_order") return;
-        utilityPrompts[key] = json[key] ?? "";
+    const orderedIds = new Set(promptOrder.map(item => item.identifier));
+    orphanPrompts = json.prompts.filter(prompt => !orderedIds.has(prompt.identifier));
+
+    // Plain-text utility prompts. Base fields show even when empty; optional
+    // fields only when the preset actually carries text.
+    MACRO_FIELD_KEYS.forEach(key => {
+        const value = json[key];
+        if (OPTIONAL_MACRO_FIELD_KEYS.has(key) && (typeof value !== "string" || value.length === 0)) {
+            return;
+        }
+        utilityPrompts[key] = typeof value === "string" ? value : (value ?? "");
     });
 
     // the rest of the file (samplers, models, toggles, ...) verbatim
     restJson = {};
     Object.keys(json).forEach(key => {
-        if (!UTILITY_PROMPTS_KEYS.includes(key)) restJson[key] = json[key];
+        if (STRUCTURAL_KEYS.has(key) || MACRO_FIELD_KEY_SET.has(key)) return;
+        restJson[key] = json[key];
     });
 
-    console.log("prompts:", prompts);
-    console.log("prompt_order:", promptOrder);
+    computeMacroAnalyses();
 }
 
 function displayPrompts() {
@@ -415,6 +1194,9 @@ function displayPrompts() {
         mainContainer.appendChild(promptElement);
     });
 
+    const orphanSection = createOrphanPromptsSection();
+    if (orphanSection) mainContainer.appendChild(orphanSection);
+
     const rawSection = createRawJsonSection();
     if (rawSection) mainContainer.appendChild(rawSection);
 
@@ -423,6 +1205,7 @@ function displayPrompts() {
     collapseAllButton.removeAttribute("disabled");
 
     updateStats();
+    renderLegend();
     applyFilters();
     updateEmptyState();
 }
@@ -431,9 +1214,43 @@ function updateStats() {
     const total = promptOrder.length;
     const enabledCount = promptOrder.filter(p => p.enabled).length;
     const fileLabel = fileNameLabel.textContent || "preset";
+    const parts = [`${fileLabel} — ${total} prompts, ${enabledCount} enabled`];
 
-    statsBar.textContent = `${fileLabel} — ${total} prompts, ${enabledCount} enabled`;
-    statsBar.hidden = total === 0;
+    if (orphanPrompts.length > 0) {
+        parts.push(`${orphanPrompts.length} not in order`);
+    }
+
+    if (macroTotals.active > 0) {
+        let macroPart = `${formatCount(macroTotals.active)} macros in active fields`;
+        if (macroTotals.comments > 0) {
+            macroPart += ` (${formatCount(macroTotals.comments)} comments)`;
+        }
+        parts.push(macroPart);
+    }
+
+    if (macroTotals.errors > 0) {
+        parts.push(`${formatCount(macroTotals.errors)} active ${plural(macroTotals.errors, "error")}`);
+    }
+    if (macroTotals.warnings > 0) {
+        parts.push(`${formatCount(macroTotals.warnings)} active ${plural(macroTotals.warnings, "warning")}`);
+    }
+    if (macroTotals.disabled > 0) {
+        parts.push(`${formatCount(macroTotals.disabled)} not evaluated`);
+    }
+    if (macroTotals.names > 0) {
+        parts.push(`${formatCount(macroTotals.names)} in prompt names`);
+    }
+    if (macroTotals.literal > 0) {
+        parts.push(`${formatCount(macroTotals.literal)} in literal fields`);
+    }
+
+    statsBar.textContent = parts.join(" · ");
+    statsBar.hidden = total === 0 && orphanPrompts.length === 0;
+    statsBar.title = [
+        "Active fields = enabled prompt content plus macro-expanded utility fields.",
+        "Disabled entries and prompts absent from the active prompt_order are shown but not counted as active.",
+        "Counts are source invocations, not generated tokens or a claim about what the model sees.",
+    ].join("\n");
 }
 
 function updateEmptyState() {
@@ -444,21 +1261,30 @@ function applyFilters() {
     const query = (searchInput.value || "").trim().toLowerCase();
     const role = roleFilter.value || "all";
     let visible = 0;
+    let nestedVisible = 0;
 
     let total = 0;
 
     for (const child of mainContainer.children) {
-        if (child.id === "utility-prompts") {
+        if (child.id === "utility-prompts" || child.id === "orphan-prompts") {
             let innerVisible = 0;
-            const inner = child.querySelectorAll(".utility-prompt");
-            for (const d of inner) {
+            const selector = child.id === "utility-prompts" ? ".utility-prompt" : ".prompt-card";
+            const filtered = query !== "" || role !== "all";
+
+            for (const d of child.querySelectorAll(selector)) {
                 const hay = d.dataset.search || "";
                 const matchesQuery = !query || hay.includes(query);
-                d.hidden = !matchesQuery;
-                if (matchesQuery) innerVisible++;
+                const matchesRole = role === "all"
+                    || d.dataset.role === role
+                    || d.dataset.role === "all";
+                const show = matchesQuery && matchesRole;
+                d.hidden = !show;
+                if (show) innerVisible++;
             }
-            child.hidden = query !== "" && innerVisible === 0;
-            if (query !== "" && innerVisible > 0) child.open = true;
+
+            child.hidden = filtered && innerVisible === 0;
+            if (filtered && innerVisible > 0) child.open = true;
+            nestedVisible += innerVisible;
             continue;
         }
 
@@ -474,13 +1300,14 @@ function applyFilters() {
     }
 
     // show a hint inside stats when filtering hides everything
-    if (total > 0 && visible === 0) {
+    if (total > 0 && visible === 0 && nestedVisible === 0) {
         statsBar.hidden = false;
         statsBar.textContent += " — no matches for current filter";
     } else if (total > 0) {
         updateStats();
         if (visible !== total) {
-            statsBar.textContent += ` — showing ${visible}`;
+            const grouped = nestedVisible > 0 ? ` + ${nestedVisible} nested` : "";
+            statsBar.textContent += ` — showing ${visible}${grouped}`;
         }
     }
 }

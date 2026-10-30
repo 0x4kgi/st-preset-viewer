@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ST Preset Editor</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="title-wrap editor-title">
+        <h1>ST Preset Editor <span id="dirty-dot" class="dirty-dot" hidden title="Unsaved changes">•</span></h1>
+        <input type="text" id="filename-input" class="filename-input" value="preset.json" spellcheck="false" aria-label="Save filename" title="Save filename">
+      </div>
+      <div class="file-wrap">
+        <label class="file-button icon-btn" for="editor-file-input" title="Open preset JSON — everything stays local">📂</label>
+        <input type="file" id="editor-file-input" accept=".json,application/json">
+        <button id="new-button" class="btn btn-ghost icon-btn" type="button" title="New blank preset">➕</button>
+        <button id="save-button" class="btn btn-primary icon-btn" type="button" title="Download JSON" disabled>💾</button>
+        <a class="btn btn-ghost icon-btn" href="index.html" title="Open viewer">👁</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar" role="toolbar" aria-label="Editor controls">
+    <div id="editor-stats" class="stats toolbar-stats" hidden></div>
+    <button id="add-prompt-button" class="btn btn-ghost" type="button" disabled>Add prompt</button>
+    <button id="reload-button" class="btn btn-ghost" type="button" disabled title="Reload from the loaded file, discarding edits">Reload</button>
+  </div>
+
+  <div id="editor-errors" class="editor-errors" hidden></div>
+
+  <div id="editor-empty" class="empty-state">
+    <div class="empty-icon" aria-hidden="true">📝</div>
+    <h2>Drop a preset JSON to edit it</h2>
+    <p>You can also click <strong>Choose JSON</strong> above, or <strong>New</strong> for a blank preset. Everything stays local in your browser.</p>
+  </div>
+
+  <div id="editor-layout" class="editor-layout" hidden>
+    <aside class="editor-sidebar" aria-label="Prompt list">
+      <div class="side-search">
+        <input type="search" id="editor-search" placeholder="Filter prompts…" autocomplete="off" aria-label="Filter prompts">
+      </div>
+      <div id="builtin-banner" class="builtin-banner" hidden></div>
+      <div class="side-group">
+        <h3>Prompt order <span id="order-count" class="side-count"></span></h3>
+        <ol id="order-list" class="order-list"></ol>
+      </div>
+      <div class="side-group">
+        <h3>Not in order <span id="orphan-count" class="side-count"></span></h3>
+        <ul id="orphan-list" class="order-list"></ul>
+      </div>
+      <div class="side-group">
+        <h3>Utility fields</h3>
+        <ul id="utility-list" class="order-list"></ul>
+      </div>
+    </aside>
+
+    <main id="editor-main" class="editor-main" aria-live="polite"></main>
+
+    <aside class="editor-outline" aria-label="Variable outline">
+      <div class="outline-head">
+        <button id="outline-back" class="row-btn outline-back" type="button" hidden title="Back to all variables">←</button>
+        <h2 id="outline-title">Variables</h2>
+        <span id="outline-count" class="side-count"></span>
+      </div>
+      <div id="outline-body" class="outline-body"></div>
+    </aside>
+  </div>
+
+  <footer class="app-footer">
+    <span>Local-only editor &mdash; files never leave your browser. Macro highlighting mirrors ST 1.19 detection, not live substitution.</span>
+  </footer>
+
+  <script type="module" src="editor.js"></script>
+</body>
+</html>
