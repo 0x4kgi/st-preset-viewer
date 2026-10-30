@@ -22,6 +22,7 @@ import {
     isJsonAPreset,
     syncFileInput,
 } from "./utils/preset.js";
+import { collectVariables } from "./utils/variables.js";
 
 /* ------------------------------------------------------------------ *
  * State — everything lives here, the DOM is re-rendered from it.
@@ -46,6 +47,12 @@ let selection = null;
 let currentFile = null;
 let dirty = false;
 
+// Preset-wide variable index for the outline panel: { variables, byKey }.
+let variableIndex = { variables: [], byKey: new Map() };
+// The variable whose definition/reference list the outline shows, or null
+// for the preset-wide list.
+let outlineSelection = null;
+
 /* ------------------------------------------------------------------ *
  * DOM handles
  * ------------------------------------------------------------------ */
@@ -69,6 +76,10 @@ const orphanCount = document.getElementById("orphan-count");
 const main = document.getElementById("editor-main");
 const dirtyDot = document.getElementById("dirty-dot");
 const builtinBanner = document.getElementById("builtin-banner");
+const outlineBody = document.getElementById("outline-body");
+const outlineTitle = document.getElementById("outline-title");
+const outlineCount = document.getElementById("outline-count");
+const outlineBack = document.getElementById("outline-back");
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -521,6 +532,7 @@ function renderSidebar() {
             renderSidebar();
             if (selection?.type === "prompt" && selection.key === entry.identifier) renderMain();
             updateStats();
+            refreshVariableIndex();
         });
 
         const btn = el("button", "order-select", name);
@@ -587,6 +599,218 @@ function renderSidebar() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Variable outline (right panel)
+ *
+ * The index is preset-wide: a variable set in one prompt and read in
+ * another is the whole point. Documents are listed in evaluation order
+ * (active order, orphans, utility fields) so site lists read naturally.
+ * ------------------------------------------------------------------ */
+
+function promptOutlineNote(identifier, entry) {
+    if (isMarkerPromptId(identifier)) return "ignored by ST";
+    if (entry && !entry.enabled) return "disabled";
+    return "";
+}
+
+function outlineDocuments() {
+    const docs = [];
+    const ordered = new Set(order.map(entry => entry.identifier));
+
+    for (const entry of order) {
+        const prompt = prompts.get(entry.identifier);
+        if (!prompt) continue;
+        docs.push({
+            id: prompt.identifier,
+            kind: "prompt",
+            label: prompt.name || prompt.identifier,
+            text: prompt.content ?? "",
+            note: promptOutlineNote(prompt.identifier, entry),
+        });
+    }
+
+    for (const [identifier, prompt] of prompts) {
+        if (ordered.has(identifier)) continue;
+        docs.push({
+            id: identifier,
+            kind: "prompt",
+            label: prompt.name || identifier,
+            text: prompt.content ?? "",
+            note: "not in order",
+        });
+    }
+
+    for (const key of UTILITY_KEYS) {
+        if (!(key in utility)) continue;
+        const info = getMacroField(key);
+        docs.push({
+            id: key,
+            kind: "utility",
+            label: key,
+            text: utility[key] ?? "",
+            note: info.expanded ? "" : "not expanded by ST",
+            expanded: info.expanded,
+        });
+    }
+
+    return docs;
+}
+
+function refreshVariableIndex() {
+    variableIndex = collectVariables(outlineDocuments());
+    if (outlineSelection && !variableIndex.byKey.has(outlineSelection)) {
+        outlineSelection = null;
+    }
+    renderOutline();
+}
+
+function renderOutline() {
+    if (!outlineBody) return;
+
+    const variable = outlineSelection ? variableIndex.byKey.get(outlineSelection) : null;
+    outlineBody.innerHTML = "";
+    outlineBack.hidden = !variable;
+
+    if (variable) {
+        outlineTitle.textContent = `${variable.scope === "global" ? "$" : "."}${variable.name}`;
+        const sites = variable.writes.length + variable.reads.length;
+        outlineCount.textContent = `${sites} ${sites === 1 ? "site" : "sites"}`;
+        renderVariableDetail(variable);
+        return;
+    }
+
+    outlineTitle.textContent = "Variables";
+    const total = variableIndex.variables.length;
+    outlineCount.textContent = total > 0 ? `· ${total.toLocaleString()}` : "";
+    renderVariableList();
+}
+
+function renderVariableList() {
+    if (variableIndex.variables.length === 0) {
+        outlineBody.appendChild(el("p", "macro-note",
+            "No variables yet. {{setvar}}, {{getvar}}, {{.local}} and {{$global}} usages in any prompt or utility field show up here."));
+        return;
+    }
+
+    for (const scope of ["local", "global"]) {
+        const scoped = variableIndex.variables.filter(variable => variable.scope === scope);
+        if (scoped.length === 0) continue;
+
+        const group = el("div", "outline-group");
+        group.appendChild(el("h3", null,
+            `${scope === "global" ? "Global" : "Local"} variables (${scoped.length})`));
+
+        const list = el("ul", "outline-list");
+        for (const variable of scoped) list.appendChild(createVariableRow(variable));
+        group.appendChild(list);
+        outlineBody.appendChild(group);
+    }
+}
+
+function createVariableRow(variable) {
+    const li = el("li");
+    const btn = el("button", "outline-var");
+    btn.type = "button";
+
+    const prefix = el("span", "var-scope", variable.scope === "global" ? "$" : ".");
+    const name = el("span", "var-name", variable.name);
+    const defs = variable.writes.length;
+    const refs = variable.reads.length;
+    const counts = el("span", "var-counts",
+        `${defs} def${defs === 1 ? "" : "s"} · ${refs} ref${refs === 1 ? "" : "s"}`);
+
+    btn.title = `${variable.scope} variable "${variable.name}" — `
+        + `${defs} definition${defs === 1 ? "" : "s"}, ${refs} reference${refs === 1 ? "" : "s"} in this preset.`;
+    btn.append(prefix, name, counts);
+    btn.addEventListener("click", () => {
+        outlineSelection = variable.key;
+        renderOutline();
+    });
+
+    li.appendChild(btn);
+    return li;
+}
+
+function renderVariableDetail(variable) {
+    const defs = variable.writes.length;
+    const refs = variable.reads.length;
+
+    outlineBody.appendChild(el("p", "outline-summary",
+        `${variable.scope === "global" ? "Global" : "Local"} variable · `
+        + `${defs} definition${defs === 1 ? "" : "s"} · `
+        + `${refs} reference${refs === 1 ? "" : "s"}`));
+
+    outlineBody.appendChild(createSiteSection("Definitions", variable.writes,
+        "No definition in this preset — it may come from ST, an extension, or an earlier chat."));
+    outlineBody.appendChild(createSiteSection("References", variable.reads,
+        "No references in this preset."));
+}
+
+function createSiteSection(title, sites, emptyText) {
+    const section = el("section", "outline-section");
+    section.appendChild(el("h3", null, `${title} (${sites.length})`));
+
+    if (sites.length === 0) {
+        section.appendChild(el("p", "outline-empty", emptyText));
+        return section;
+    }
+
+    const list = el("ul", "outline-sites");
+    for (const site of sites) {
+        const li = el("li");
+        li.appendChild(createSiteButton(site));
+        list.appendChild(li);
+    }
+    section.appendChild(list);
+    return section;
+}
+
+function createSiteButton(site) {
+    const btn = el("button", "outline-site");
+    btn.type = "button";
+    btn.title = `${site.label} — L${site.line}:${site.column}. Click to open this prompt and select the macro.`;
+
+    const doc = el("span", "site-doc");
+    doc.appendChild(el("span", "site-label", site.label));
+    if (site.note) doc.appendChild(el("span", "site-note", site.note));
+
+    const loc = el("span", "site-loc", `L${site.line}:${site.column}`);
+
+    const detail = el("span", "site-detail");
+    detail.appendChild(el("code", "site-macro", site.macro));
+    // `setvar` / shorthand writes carry a value; show it as an assignment.
+    const suffix = site.value
+        ? `${site.operator ?? "="} ${site.value}`
+        : (site.operator ?? "");
+    if (suffix) detail.append(" ", document.createTextNode(suffix));
+
+    btn.append(doc, loc, detail);
+    btn.addEventListener("click", () => openVariableSite(site));
+    return btn;
+}
+
+function openVariableSite(site) {
+    selection = site.kind === "utility"
+        ? { type: "utility", key: site.id }
+        : { type: "prompt", key: site.id };
+
+    renderSidebar();
+    renderMain();
+
+    const textarea = site.kind === "utility"
+        ? main.querySelector(`textarea[data-field="${CSS.escape(site.id)}"]`)
+        : main.querySelector("textarea.ed-textarea");
+
+    if (!textarea) return;
+
+    textarea.focus({ preventScroll: true });
+    const end = Math.min(site.end, textarea.value.length);
+    textarea.setSelectionRange(Math.min(site.start, end), end);
+
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+    textarea.scrollTop = Math.max(0, (site.line - 1) * lineHeight - textarea.clientHeight / 2);
+}
+
+/* ------------------------------------------------------------------ *
  * Edit pane
  * ------------------------------------------------------------------ */
 
@@ -625,7 +849,7 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         prompt.name = nameInput.value;
         markDirty();
         clearTimeout(nameTimer);
-        nameTimer = setTimeout(renderSidebar, 300);
+        nameTimer = setTimeout(() => { renderSidebar(); refreshVariableIndex(); }, 300);
         updateStats();
     });
     head.appendChild(nameInput);
@@ -808,7 +1032,7 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
     textarea.addEventListener("input", () => {
         markDirty();
         clearTimeout(timer);
-        timer = setTimeout(refresh, 200);
+        timer = setTimeout(() => { refresh(); refreshVariableIndex(); }, 200);
     });
     refresh();
 }
@@ -871,7 +1095,7 @@ function renderUtilityForm() {
         textarea.addEventListener("input", () => {
             markDirty();
             clearTimeout(timer);
-            timer = setTimeout(() => { refresh(); renderSidebar(); updateStats(); }, 250);
+            timer = setTimeout(() => { refresh(); renderSidebar(); updateStats(); refreshVariableIndex(); }, 250);
         });
         refresh();
 
@@ -974,10 +1198,17 @@ function renderAll() {
     layout.hidden = !has;
     saveButton.disabled = !has;
     addPromptButton.disabled = !has;
-    if (!has) { statsBar.hidden = true; return; }
+    if (!has) {
+        statsBar.hidden = true;
+        variableIndex = { variables: [], byKey: new Map() };
+        outlineSelection = null;
+        renderOutline();
+        return;
+    }
     renderSidebar();
     renderMain();
     updateStats();
+    refreshVariableIndex();
 }
 
 /* ------------------------------------------------------------------ *
@@ -995,6 +1226,11 @@ reloadButton.addEventListener("click", () => {
     handleFile(currentFile);
 });
 saveButton.addEventListener("click", saveDownload);
+
+outlineBack.addEventListener("click", () => {
+    outlineSelection = null;
+    renderOutline();
+});
 
 addPromptButton.addEventListener("click", () => {
     const id = makeIdentifier();

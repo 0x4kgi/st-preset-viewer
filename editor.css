@@ -2,8 +2,13 @@
    classes (.prompt-content, .macro-hl.cat-*, .macro-panel, ...) are all
    reused from style.css unchanged. */
 
+/* The editor uses the full viewport: sidebar / prompt / variable outline. */
 body {
-    max-width: 1200px;
+    max-width: none;
+}
+
+.header-inner {
+    max-width: none;
 }
 
 .header-link {
@@ -42,6 +47,8 @@ body {
     flex: 1;
     width: auto;
     min-width: 0;
+    /* Full-width layout: do not let the name field swallow the header. */
+    max-width: 460px;
 }
 
 .icon-btn {
@@ -82,7 +89,7 @@ body {
 
 .editor-layout {
     display: grid;
-    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr) 320px;
     gap: 16px;
     align-items: start;
     margin-top: 12px;
@@ -90,9 +97,10 @@ body {
 
 .editor-sidebar {
     position: sticky;
-    top: 110px;
-    max-height: calc(100vh - 140px);
+    top: 78px;
+    max-height: calc(100vh - 100px);
     overflow-y: auto;
+    min-width: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-raised);
@@ -213,6 +221,177 @@ body {
 .util-row .order-select {
     font-family: var(--font-mono);
     font-size: 0.78rem;
+}
+
+/* ---------- Variable outline (right panel) ---------- */
+
+.editor-outline {
+    position: sticky;
+    top: 78px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    padding: 10px;
+}
+
+.outline-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.outline-head h2 {
+    margin: 0;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+.outline-head .side-count {
+    font-size: 0.75rem;
+}
+
+.outline-back {
+    flex: none;
+    align-self: center;
+}
+
+.outline-group h3,
+.outline-section h3 {
+    margin: 10px 2px 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.outline-group:first-child h3,
+.outline-section:first-of-type h3 {
+    margin-top: 0;
+}
+
+.outline-list,
+.outline-sites {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.outline-var,
+.outline-site {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.outline-var {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.outline-var:hover,
+.outline-var:focus-visible,
+.outline-site:hover,
+.outline-site:focus-visible {
+    background: var(--bg-inset);
+    border-color: var(--border);
+    outline: none;
+}
+
+.var-scope {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--cat-variable);
+}
+
+.var-name {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.var-counts {
+    flex: none;
+    margin-left: auto;
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+
+.outline-summary {
+    margin: 0 0 8px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.outline-empty {
+    margin: 0 0 8px;
+    font-size: 0.74rem;
+    color: var(--text-faint);
+}
+
+.outline-site {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 8px;
+}
+
+.site-doc {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+}
+
+.site-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78rem;
+}
+
+.site-note {
+    flex: none;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--warning);
+}
+
+.site-loc {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+
+.site-detail {
+    grid-column: 1 / -1;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.site-macro {
+    color: var(--cat-variable);
 }
 
 /* ---------- Edit pane ---------- */
@@ -446,6 +625,32 @@ body {
     white-space: pre-line;
 }
 
+@media (max-width: 1280px) {
+    .editor-layout {
+        grid-template-columns: 260px minmax(0, 1fr) 280px;
+    }
+}
+
+@media (max-width: 1040px) {
+    .editor-layout {
+        grid-template-columns: 260px minmax(0, 1fr);
+    }
+
+    /* The outline drops below the editor instead of squeezing it. */
+    .editor-outline {
+        grid-column: 1 / -1;
+        position: static;
+        max-height: 340px;
+    }
+
+    /* Full width now: spread the variable rows instead of one long column. */
+    .editor-outline .outline-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 2px 14px;
+    }
+}
+
 @media (max-width: 900px) {
     .editor-layout {
         grid-template-columns: 1fr;
@@ -454,6 +659,10 @@ body {
     .editor-sidebar {
         position: static;
         max-height: 260px;
+    }
+
+    .editor-outline {
+        grid-column: auto;
     }
 
     .ed-grid,

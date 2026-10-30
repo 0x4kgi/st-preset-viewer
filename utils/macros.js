@@ -604,7 +604,7 @@ export function getMacroField(field) {
  * Source locations
  * ------------------------------------------------------------------------- */
 
-function computeLineStarts(text) {
+export function computeLineStarts(text) {
     const starts = [0];
     for (let i = 0; i < text.length; i++) {
         if (text.charCodeAt(i) === 10) starts.push(i + 1);
@@ -612,7 +612,7 @@ function computeLineStarts(text) {
     return starts;
 }
 
-function locate(lineStarts, offset) {
+export function locate(lineStarts, offset) {
     let low = 0;
     let high = lineStarts.length - 1;
     while (low <= high) {
