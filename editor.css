@@ -1,0 +1,464 @@
+/* Editor-only additions. Base theme, buttons, badges, macro highlight
+   classes (.prompt-content, .macro-hl.cat-*, .macro-panel, ...) are all
+   reused from style.css unchanged. */
+
+body {
+    max-width: 1200px;
+}
+
+.header-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.header-link:hover {
+    text-decoration: underline;
+}
+
+/* Compact editor header: no tagline, icon buttons. */
+.app-header {
+    padding: 8px 16px;
+}
+
+.title-wrap h1 {
+    font-size: 1.05rem;
+}
+
+.editor-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.editor-title h1 {
+    white-space: nowrap;
+}
+
+.editor-title .filename-input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+}
+
+.icon-btn {
+    min-width: 36px;
+    padding: 8px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.dirty-dot {
+    color: var(--warning);
+    font-size: 1.4em;
+    line-height: 0;
+    vertical-align: middle;
+}
+
+#editor-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.filename-input {
+    width: 150px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+/* ---------- Layout ---------- */
+
+.editor-layout {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    margin-top: 12px;
+}
+
+.editor-sidebar {
+    position: sticky;
+    top: 110px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    padding: 10px;
+}
+
+.side-group h3 {
+    margin: 8px 4px 6px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.builtin-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 212, 59, 0.07);
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.builtin-banner[hidden] {
+    display: none;
+}
+
+.side-group:first-child h3 {
+    margin-top: 0;
+}
+
+.side-count {
+    color: var(--text-faint);
+    font-weight: 400;
+}
+
+.order-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.order-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+}
+
+.order-row:hover {
+    background: var(--bg-inset);
+}
+
+.order-row.selected {
+    border-color: var(--accent);
+    background: var(--bg-inset);
+}
+
+.order-row.is-disabled {
+    opacity: 0.62;
+}
+
+.order-select {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px;
+}
+
+.order-select.warn {
+    color: var(--warning);
+}
+
+.row-btn {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 2px 5px;
+}
+
+.row-btn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.row-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.enable-check {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.util-row .order-select {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+}
+
+/* ---------- Edit pane ---------- */
+
+.editor-main {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    padding: 14px;
+}
+
+.ed-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.ed-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+}
+
+.ed-head .spacer {
+    flex: 1;
+}
+
+.btn-danger {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.btn-danger:hover {
+    background: rgba(255, 135, 135, 0.12);
+}
+
+.ed-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.ed-row {
+    display: grid;
+    gap: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.ed-row-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
+.ed-row-2 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.ed-name-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-family: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+}
+
+.ed-name-input:hover {
+    border-color: var(--border);
+}
+
+.ed-name-input:focus {
+    background: var(--bg-inset);
+    border-color: var(--accent);
+    outline: none;
+}
+
+.toolbar-stats {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    align-self: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.side-search {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: -10px -10px 8px;
+    padding: 10px;
+    background: var(--bg-raised);
+}
+
+.side-search input {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.82rem;
+}
+
+.ed-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+}
+
+.ed-field.full {
+    grid-column: 1 / -1;
+}
+
+.ed-field > span {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.ed-field input[type="text"],
+.ed-field select,
+.ed-field input[type="number"] {
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    color: var(--text);
+    font: inherit;
+}
+
+.ed-field input.invalid {
+    border-color: var(--danger);
+}
+
+.ed-check {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+}
+
+.ed-check input {
+    accent-color: var(--accent);
+}
+
+.ed-textarea {
+    width: 100%;
+    min-height: 220px;
+    resize: vertical;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-inset);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.ed-textarea.small {
+    min-height: 110px;
+}
+
+.macro-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 10px 0 6px;
+}
+
+.ed-preview {
+    margin-top: 8px;
+}
+
+.ed-preview > summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+/* Reuse viewer's pre styling baseline, allow wrapping in the editor. */
+.ed-preview .prompt-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.util-block {
+    border-top: 1px solid var(--border);
+    padding: 12px 0 4px;
+}
+
+.util-block:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+.util-block h3 {
+    margin: 0 0 2px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+}
+
+.util-note {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    color: var(--text-faint);
+}
+
+.editor-errors {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--danger);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 135, 135, 0.08);
+    font-size: 0.82rem;
+    white-space: pre-line;
+}
+
+@media (max-width: 900px) {
+    .editor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .editor-sidebar {
+        position: static;
+        max-height: 260px;
+    }
+
+    .ed-grid,
+    .ed-row-3,
+    .ed-row-2 {
+        grid-template-columns: 1fr;
+    }
+}

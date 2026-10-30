@@ -7,57 +7,17 @@ import {
     getMacroDefinition,
     getMacroField,
 } from "./utils/macros.js";
+import {
+    MACRO_FIELD_KEY_SET,
+    MACRO_FIELD_KEYS,
+    OPTIONAL_MACRO_FIELD_KEYS,
+    STRUCTURAL_KEYS,
+    findActiveOrderEntry,
+    isJsonAPreset,
+    syncFileInput,
+} from "./utils/preset.js";
 
 "use strict";
-
-// Keys that every ST OpenAI preset carries. These are only the signature;
-// they are not all macro-expanded (see MACRO_FIELD_KEYS below).
-const PRESET_SIGNATURE_KEYS = [
-    "impersonation_prompt",
-    "new_chat_prompt",
-    "new_group_chat_prompt",
-    "new_example_chat_prompt",
-    "continue_nudge_prompt",
-    "wi_format",
-    "scenario_format",
-    "personality_format",
-    "group_nudge_prompt",
-    "prompts",
-    "prompt_order",
-];
-
-// Fields ST actually passes through substituteParams(), in display order.
-// `wi_format` is deliberately last: it is the one "macro-looking" field that
-// ST does not expand.
-const MACRO_FIELD_KEYS = [
-    "impersonation_prompt",
-    "new_chat_prompt",
-    "new_group_chat_prompt",
-    "new_example_chat_prompt",
-    "continue_nudge_prompt",
-    "group_nudge_prompt",
-    "scenario_format",
-    "personality_format",
-    "assistant_prefill",
-    "assistant_impersonation",
-    "custom_include_body",
-    "custom_exclude_body",
-    "custom_include_headers",
-    "wi_format",
-];
-
-// Optional fields are only shown when the preset actually carries text for
-// them; the base fields are shown even when empty, as before.
-const OPTIONAL_MACRO_FIELD_KEYS = new Set([
-    "assistant_prefill",
-    "assistant_impersonation",
-    "custom_include_body",
-    "custom_exclude_body",
-    "custom_include_headers",
-]);
-
-const STRUCTURAL_KEYS = new Set(["prompts", "prompt_order"]);
-const MACRO_FIELD_KEY_SET = new Set(MACRO_FIELD_KEYS);
 
 const mainContainer = document.getElementById("main");
 const loadButton = document.getElementById("load-button");
@@ -113,12 +73,6 @@ let activeOrderCharacterId = null;
 // `fileInput.files[0]` goes stale after a drag-and-drop, so every
 // entry point (picker, drop, reload, export) goes through this.
 let currentFile = null;
-
-function isJsonAPreset(json) {
-    const jsonKeys = Object.keys(json);
-
-    return PRESET_SIGNATURE_KEYS.every(key => jsonKeys.includes(key));
-}
 
 function makeBadge(text, className = "") {
     const span = document.createElement("span");
@@ -907,13 +861,7 @@ function handleFile(file) {
     // Keep the <input> in sync so picker / drop / reload all agree.
     // DataTransfer assignment can throw in some browsers — currentFile
     // remains the source of truth regardless.
-    try {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-    } catch {
-        /* ignore — currentFile already holds the file */
-    }
+    syncFileInput(fileInput, file);
 
     fileNameLabel.textContent = file.name || "Selected file";
     resetEverything(false);
@@ -1090,10 +1038,7 @@ function extractPresetData(json) {
      * ST loads 100001 as the default, 100000 is kept for legacy reasons,
      * and if both fails, fallback the last prompt_order[] entry.
      */
-    const orderEntry =
-        json.prompt_order.find(e => String(e.character_id) === '100001')
-        ?? json.prompt_order.find(e => String(e.character_id) === '100000')
-        ?? json.prompt_order.at(-1);
+    const { entry: orderEntry } = findActiveOrderEntry(json.prompt_order);
 
     if (orderEntry?.order) {
         orderEntry.order.forEach(i => promptOrder.push(i));
