@@ -56,6 +56,25 @@ function cleanValue(value) {
     return text.length > VALUE_LIMIT ? `${text.slice(0, VALUE_LIMIT)}…` : text;
 }
 
+// ST's `if` condition may be a bare variable shorthand, with optional `!`
+// negation: `{{if .flag}}`, `{{if !$flag}}`, `{{#if .flag}}`.
+const IF_SHORTHAND = /^([.$])([A-Za-z](?:[\w-]*\w)?)$/;
+
+function baseSite(doc, macro, start, end) {
+    return {
+        id: doc.id,
+        kind: doc.kind,
+        label: doc.label,
+        note: doc.note ?? "",
+        macro: macro.name,
+        raw: macro.raw,
+        line: 1,
+        column: 1,
+        start,
+        end,
+    };
+}
+
 /**
  * @param {any} macro
  * @param {any} doc
@@ -92,21 +111,48 @@ function makeSite(macro, doc, start) {
     }
 
     return {
-        id: doc.id,
-        kind: doc.kind,
-        label: doc.label,
-        note: doc.note ?? "",
+        ...baseSite(doc, macro, start, start + macro.raw.length),
         name,
         scope,
         access,
-        macro: macro.name,
         operator,
         value,
-        raw: macro.raw,
-        line: 1,
-        column: 1,
-        start,
-        end: start + macro.raw.length,
+    };
+}
+
+/**
+ * `{{if .flag}}` / `{{if !$flag}}` resolve the shorthand as a read inside the
+ * condition even though it is plain argument text, not a `{{.flag}}` macro.
+ * Without this, a variable only consulted by an if looks unused.
+ *
+ * @param {any} macro
+ * @param {any} doc
+ * @param {number} start Absolute offset of the `if` macro in the document.
+ * @returns {Object|null}
+ */
+function makeIfConditionSite(macro, doc, start) {
+    if (!macro || macro.malformed || macro.isClosing) return null;
+    if (macro.lowerName !== "if") return null;
+
+    let condition = String(macro.args[0] ?? "").trim();
+    if (condition.startsWith("!")) condition = condition.slice(1).trim();
+
+    const match = IF_SHORTHAND.exec(condition);
+    if (!match) return null;
+
+    // Select just the shorthand inside `{{if ...}}`, not the whole macro.
+    const offset = macro.raw.indexOf(condition);
+    if (offset === -1) return null;
+    const siteStart = start + offset;
+
+    return {
+        ...baseSite(doc, macro, siteStart, siteStart + condition.length),
+        name: match[2],
+        scope: match[1] === "$" ? "global" : "local",
+        access: "read",
+        operator: null,
+        value: null,
+        macro: condition,
     };
 }
 
@@ -155,16 +201,19 @@ export function collectVariables(documents) {
 
         // Nested macros keep coordinates relative to their parent's `inner`,
         // so walk with an offset instead of using `allMacros` as-is.
+        const register = (site) => {
+            if (!site) return;
+            const location = locate(lineStarts, site.start);
+            site.line = location.line;
+            site.column = location.column;
+            addSite(variables, byKey, site);
+        };
+
         const visit = (macros, offset) => {
             for (const macro of macros) {
                 const start = offset + macro.start;
-                const site = makeSite(macro, doc, start);
-                if (site) {
-                    const location = locate(lineStarts, start);
-                    site.line = location.line;
-                    site.column = location.column;
-                    addSite(variables, byKey, site);
-                }
+                register(makeSite(macro, doc, start));
+                register(makeIfConditionSite(macro, doc, start));
                 if (macro.nested) visit(macro.nested, start + 2);
             }
         };
