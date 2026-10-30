@@ -1127,26 +1127,75 @@ function renderPromptForm(prompt, orderEntry, inOrder) {
         return;
     }
 
-    // Content + live macro feedback. The textarea is created once per
-    // selection; only the panel/preview refresh on input (keeps focus).
-    const contentHead = el("div", "ed-field full");
+    // Content + live macro feedback. Write and Preview share one pane: the
+    // preview used to sit below the textarea and squeezed it. The macro
+    // feedback stays outside the tabs, so it is visible in both views.
+    const contentHead = el("div", "ed-field full ed-content-head");
     contentHead.appendChild(el("span", null, "Content"));
+
+    const tabs = el("div", "ed-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Content view");
+
+    const writeTab = el("button", "ed-tab is-active", "Write");
+    writeTab.type = "button";
+    writeTab.id = "ed-tab-write";
+    writeTab.setAttribute("role", "tab");
+    writeTab.setAttribute("aria-selected", "true");
+    writeTab.setAttribute("aria-controls", "ed-pane-write");
+
+    const previewTab = el("button", "ed-tab", "Preview");
+    previewTab.type = "button";
+    previewTab.id = "ed-tab-preview";
+    previewTab.setAttribute("role", "tab");
+    previewTab.setAttribute("aria-selected", "false");
+    previewTab.setAttribute("aria-controls", "ed-pane-preview");
+
+    tabs.append(writeTab, previewTab);
+    contentHead.appendChild(tabs);
     main.appendChild(contentHead);
+
+    const pane = el("div", "ed-tabpane");
+
+    const writePane = el("div", "ed-pane-write");
+    writePane.id = "ed-pane-write";
+    writePane.setAttribute("role", "tabpanel");
+    writePane.setAttribute("aria-labelledby", "ed-tab-write");
+
     const textarea = el("textarea", "ed-textarea");
     textarea.value = prompt.content ?? "";
     textarea.spellcheck = false;
-    main.appendChild(textarea);
+    writePane.appendChild(textarea);
+
+    const previewPane = el("div", "ed-preview-pane");
+    previewPane.id = "ed-pane-preview";
+    previewPane.hidden = true;
+    previewPane.setAttribute("role", "tabpanel");
+    previewPane.setAttribute("aria-labelledby", "ed-tab-preview");
+    previewPane.appendChild(el("p", "ed-preview-note",
+        "Detection only — macro values are not resolved."));
+    const pre = el("pre", "prompt-content");
+    previewPane.appendChild(pre);
+
+    pane.append(writePane, previewPane);
+    main.appendChild(pane);
+
+    const selectTab = (showPreview) => {
+        writePane.hidden = showPreview;
+        previewPane.hidden = !showPreview;
+        writeTab.classList.toggle("is-active", !showPreview);
+        previewTab.classList.toggle("is-active", showPreview);
+        writeTab.setAttribute("aria-selected", String(!showPreview));
+        previewTab.setAttribute("aria-selected", String(showPreview));
+        if (!showPreview) textarea.focus({ preventScroll: true });
+    };
+    writeTab.addEventListener("click", () => selectTab(false));
+    previewTab.addEventListener("click", () => selectTab(true));
 
     const line = el("div", "macro-line");
     const issuesBox = el("div");
     const chipsBox = el("div");
-    const preview = document.createElement("details");
-    preview.className = "ed-preview";
-    preview.open = true;
-    preview.appendChild(el("summary", null, "Highlighted preview (detection only — values are not resolved)"));
-    const pre = el("pre", "prompt-content");
-    preview.appendChild(pre);
-    main.append(line, issuesBox, chipsBox, preview);
+    main.append(line, issuesBox, chipsBox);
 
     const refresh = () => {
         prompt.content = textarea.value;

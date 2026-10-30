@@ -562,7 +562,8 @@ body {
 
 .ed-textarea {
     width: 100%;
-    min-height: 220px;
+    /* Taller by default: the highlighted preview lives in its own tab now. */
+    min-height: 400px;
     resize: vertical;
     padding: 10px;
     border-radius: var(--radius-sm);
@@ -576,6 +577,78 @@ body {
 
 .ed-textarea.small {
     min-height: 110px;
+}
+
+/* ---------- Write / Preview tabs ---------- */
+
+.ed-content-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.ed-tabs {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-inset);
+}
+
+.ed-tab {
+    padding: 3px 12px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ed-tab:hover {
+    color: var(--text);
+}
+
+.ed-tab.is-active {
+    background: var(--bg-raised);
+    border-color: var(--border-strong);
+    color: var(--accent);
+}
+
+.ed-tabpane {
+    display: flex;
+    flex-direction: column;
+}
+
+.ed-preview-pane {
+    height: 400px;
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-inset);
+}
+
+.ed-preview-note {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}
+
+.ed-preview-pane .prompt-content {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .macro-line {
