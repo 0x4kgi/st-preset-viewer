@@ -100,3 +100,66 @@ export function syncFileInput(input, file) {
         /* ignore — caller-held file variable is the source of truth */
     }
 }
+
+/* ------------------------------------------------------------------ *
+ * Default prompts (ST text-completion presets).
+ *
+ * These are the prompt ids that ship with ST — the shared key for "the
+ * actual default prompts", used by both the viewer and the editor. Note
+ * the `marker` flag in the JSON is NOT this: preset makers can freely
+ * toggle that flag, so it is never treated as a default indicator here.
+ * ------------------------------------------------------------------ */
+
+// Canonical prompt arrangement, mirroring ST's default text-completion order.
+export const DEFAULT_ORDER = Object.freeze([
+    "main",
+    "personaDescription",
+    "worldInfoBefore",
+    "charDescription",
+    "charPersonality",
+    "scenario",
+    "worldInfoAfter",
+    "dialogueExamples",
+    "enhanceDefinitions",
+    "nsfw",
+    "chatHistory",
+    "jailbreak",
+]);
+
+const DEFAULT_PROMPT_ID_SET = new Set(DEFAULT_ORDER);
+
+export function isDefaultPromptId(id) {
+    return DEFAULT_PROMPT_ID_SET.has(id);
+}
+
+// Identifiers whose content ST supplies at runtime. ST does not even show
+// a textbox for these, so both apps treat them as uneditable: the stored
+// text (if any) is preserved verbatim, never evaluated, and never shown
+// as an editable/previewable prompt body.
+export const MARKER_PROMPT_IDS = new Set([
+    "worldInfoBefore",
+    "personaDescription",
+    "charDescription",
+    "charPersonality",
+    "scenario",
+    "worldInfoAfter",
+    "dialogueExamples",
+    "chatHistory",
+]);
+
+export function isMarkerPromptId(id) {
+    return MARKER_PROMPT_IDS.has(id);
+}
+
+// Where ST-supplied content actually comes from (shown in locked panels
+// and viewer indications).
+export const ST_SUPPLIED_SOURCES = Object.freeze({
+    worldInfoBefore: "World Info entries placed before the character block \u2014 edit your lorebooks",
+    personaDescription: "the active user persona \u2014 edit the persona directly",
+    charDescription: "the character card description \u2014 edit the character card",
+    charPersonality: "the character card personality \u2014 edit the character card",
+    scenario: "the scenario \u2014 edit the character card",
+    worldInfoAfter: "World Info entries placed after the scenario \u2014 edit your lorebooks",
+    dialogueExamples: "the character card example dialogue \u2014 edit the character card",
+    chatHistory: "the chat history",
+});

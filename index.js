@@ -11,9 +11,12 @@ import {
     MACRO_FIELD_KEY_SET,
     MACRO_FIELD_KEYS,
     OPTIONAL_MACRO_FIELD_KEYS,
+    ST_SUPPLIED_SOURCES,
     STRUCTURAL_KEYS,
     findActiveOrderEntry,
+    isDefaultPromptId,
     isJsonAPreset,
+    isMarkerPromptId,
     syncFileInput,
 } from "./utils/preset.js";
 
@@ -582,7 +585,8 @@ function createPromptSections(identifier, enabledOverride, options = {}) {
     } else if (!enabled) {
         badgesEl.appendChild(makeBadge("disabled", "badge-disabled"));
     }
-    if (prompt.marker) badgesEl.appendChild(makeBadge("builtin", "badge-marker"));
+    if (prompt.marker) badgesEl.appendChild(makeBadge("marker", "badge-marker"));
+    if (isDefaultPromptId(identifier)) badgesEl.appendChild(makeBadge("default", "badge-default"));
     if (prompt.injection_position > 0) {
         badgesEl.appendChild(makeBadge(`in-chat @${prompt.injection_depth}`, "badge-injected"));
     }
@@ -628,9 +632,20 @@ function createPromptSections(identifier, enabledOverride, options = {}) {
         expanded: analysis?.expanded !== false,
     });
 
-    bodyEl.append(toolsEl);
-    if (macroPanel) bodyEl.append(macroPanel);
-    bodyEl.append(elemPromptContent);
+    // ST-supplied content is not editable and usually not even stored:
+    // show an indication instead of the tools / preview area.
+    if (isMarkerPromptId(identifier)) {
+        const suppliedNote = document.createElement("p");
+        suppliedNote.className = "macro-note";
+        const source = ST_SUPPLIED_SOURCES[identifier] ?? "runtime data (extension prompt)";
+        suppliedNote.textContent =
+            `Content is supplied by ST at runtime (${source}) \u2014 nothing stored in the preset to show.`;
+        bodyEl.append(suppliedNote);
+    } else {
+        bodyEl.append(toolsEl);
+        if (macroPanel) bodyEl.append(macroPanel);
+        bodyEl.append(elemPromptContent);
+    }
     elemDetails.appendChild(bodyEl);
 
     elemDetails.classList.add(`role-${prompt.role}`);
@@ -1025,7 +1040,7 @@ function extractPresetData(json) {
             name: prompt.name, // string
             role: prompt.role, // user, system, assistant
             system_prompt: prompt.system_prompt, // boolean, kind of redundant
-            marker: prompt.marker, // boolean, is ST builtin
+            marker: prompt.marker, // boolean, ST marker flag (freely toggleable)
             enabled: prompt.enabled, // redundant? also specified at prompt_order and that takes priority
             injection_position: prompt.injection_position, // 0 (relative) or 1 (in-chat)
             injection_depth: prompt.injection_depth, // positive? int

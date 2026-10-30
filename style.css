@@ -390,6 +390,11 @@ details[open] summary::before {
     color: var(--text);
 }
 
+.badge-default {
+    color: var(--text);
+    border-style: dashed;
+}
+
 .prompt-disabled {
     border-style: solid;
     border-color: var(--border);
