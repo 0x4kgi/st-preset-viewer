@@ -8,51 +8,13 @@ import {
     getMacroField,
 } from "./utils/macros.js";
 import { download, extractFilename } from "./utils/download.js";
-
-/* ------------------------------------------------------------------ *
- * Preset signature — same contract as the viewer (index.js).
- * ------------------------------------------------------------------ */
-
-const PRESET_SIGNATURE_KEYS = [
-    "impersonation_prompt",
-    "new_chat_prompt",
-    "new_group_chat_prompt",
-    "new_example_chat_prompt",
-    "continue_nudge_prompt",
-    "wi_format",
-    "scenario_format",
-    "personality_format",
-    "group_nudge_prompt",
-    "prompts",
-    "prompt_order",
-];
-
-// Display order for utility fields. `wi_format` last on purpose: it is the
-// one macro-looking field ST does not expand.
-const UTILITY_KEYS = [
-    "impersonation_prompt",
-    "new_chat_prompt",
-    "new_group_chat_prompt",
-    "new_example_chat_prompt",
-    "continue_nudge_prompt",
-    "group_nudge_prompt",
-    "scenario_format",
-    "personality_format",
-    "assistant_prefill",
-    "assistant_impersonation",
-    "custom_include_body",
-    "custom_exclude_body",
-    "custom_include_headers",
-    "wi_format",
-];
-
-const OPTIONAL_UTILITY_KEYS = new Set([
-    "assistant_prefill",
-    "assistant_impersonation",
-    "custom_include_body",
-    "custom_exclude_body",
-    "custom_include_headers",
-]);
+import {
+    OPTIONAL_UTILITY_KEYS,
+    UTILITY_KEYS,
+    findActiveOrderEntry,
+    isJsonAPreset,
+    syncFileInput,
+} from "./utils/preset.js";
 
 /* ------------------------------------------------------------------ *
  * State — everything lives here, the DOM is re-rendered from it.
@@ -104,12 +66,6 @@ const builtinBanner = document.getElementById("builtin-banner");
 /* ------------------------------------------------------------------ *
  * Small helpers
  * ------------------------------------------------------------------ */
-
-function isJsonAPreset(json) {
-    if (!json || typeof json !== "object") return false;
-    const keys = Object.keys(json);
-    return PRESET_SIGNATURE_KEYS.every(k => keys.includes(k));
-}
 
 function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -399,11 +355,7 @@ function loadJsonObject(json, label) {
 
     // Pick the same active entry the viewer (and ST) uses.
     const entries = Array.isArray(json.prompt_order) ? json.prompt_order : [];
-    activeOrderIndex =
-        entries.findIndex(e => String(e?.character_id) === "100001");
-    if (activeOrderIndex === -1)
-        activeOrderIndex = entries.findIndex(e => String(e?.character_id) === "100000");
-    if (activeOrderIndex === -1) activeOrderIndex = entries.length - 1;
+    activeOrderIndex = findActiveOrderEntry(json.prompt_order).index;
     activeCharacterId = entries[activeOrderIndex]?.character_id ?? 100001;
 
     prompts = new Map();
@@ -440,11 +392,7 @@ function loadJsonObject(json, label) {
 function handleFile(file) {
     if (!file) return;
     currentFile = file;
-    try {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-    } catch { /* currentFile is the source of truth */ }
+    syncFileInput(fileInput, file);
     const reader = new FileReader();
     reader.addEventListener("load", () => {
         let json;
