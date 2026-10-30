@@ -261,14 +261,20 @@ body {
     align-self: center;
 }
 
+/* Section headers: orange rail + tint, matching the variable symbols, so they
+   stand out from the rows when the panel is scrolled quickly. */
 .outline-group h3,
 .outline-section h3 {
-    margin: 10px 2px 6px;
+    margin: 12px 0 6px;
+    padding: 5px 8px;
     font-size: 0.7rem;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    color: var(--cat-variable);
+    background: color-mix(in srgb, var(--cat-variable) 13%, transparent);
+    border-left: 3px solid var(--cat-variable);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .outline-group:first-child h3,
@@ -279,8 +285,7 @@ body {
 /* "In this prompt" block: separated from the preset-wide list below. */
 .outline-current {
     padding-bottom: 8px;
-    margin-bottom: 4px;
-    border-bottom: 1px dashed var(--border);
+    margin-bottom: 2px;
 }
 
 .outline-list,
