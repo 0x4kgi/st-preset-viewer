@@ -276,6 +276,13 @@ body {
     margin-top: 0;
 }
 
+/* "In this prompt" block: separated from the preset-wide list below. */
+.outline-current {
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px dashed var(--border);
+}
+
 .outline-list,
 .outline-sites {
     list-style: none;

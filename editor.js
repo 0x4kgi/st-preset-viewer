@@ -275,31 +275,102 @@ function renderIssues(container, analysis) {
     return list;
 }
 
+function macroChipTitle(item) {
+    if (item.isVariable) {
+        const scope = item.variableScope === "global" ? "global" : "local";
+        return [
+            item.name,
+            `${scope === "global" ? "Global" : "Local"} variable shorthand.`,
+            "Reads, sets, or updates the variable; the value is resolved at runtime.",
+            "New macro engine only (default since ST 1.17.0).",
+        ].join("\n");
+    }
+
+    const def = getMacroDefinition(item.name);
+    const lines = [`{{${item.name}}}`];
+    if (def?.description) lines.push(def.description);
+    let flag = "";
+    if (item.newEngineOnly) flag = "new engine only";
+    else if (item.extension) flag = `requires ${item.extension}`;
+    else if (item.dynamic) flag = "continue_nudge_prompt only";
+    else if (!item.known) flag = "not in the 1.19.0 registry";
+    if (flag) lines.push(flag);
+    return lines.join("\n");
+}
+
+function createMacroChip(item) {
+    const chip = el("span", `macro-chip cat-${item.category}`);
+    chip.title = macroChipTitle(item);
+
+    if (!item.known) chip.classList.add("is-unknown");
+    if (item.comments) chip.classList.add("is-comment");
+    if (item.extension) chip.classList.add("is-extension");
+    if (item.dynamic) chip.classList.add("is-dynamic");
+    if (item.newEngineOnly) chip.classList.add("is-new");
+
+    chip.appendChild(el("span", "macro-dot"));
+    chip.appendChild(el("code", "macro-chip-name", item.name));
+    chip.appendChild(el("span", "macro-chip-count", `×${item.count}`));
+
+    // Shorthands sit inside a scoped group whose summary carries "new".
+    if (item.isVariable) return chip;
+
+    let flag = "";
+    if (item.newEngineOnly) flag = "new";
+    else if (item.extension) flag = "ext";
+    else if (item.dynamic) flag = "dyn";
+    else if (!item.known) flag = "?";
+    if (flag) chip.appendChild(el("span", "macro-chip-flag", flag));
+    return chip;
+}
+
+/** Same grouping the viewer uses: one collapsible group per variable scope. */
+function createVariableGroup(scope, items) {
+    const details = el("details", "macro-var-group");
+    const summary = el("summary");
+
+    summary.appendChild(el("span", "macro-dot"));
+    summary.appendChild(el("span", "var-group-label",
+        scope === "global" ? "global variables" : "local variables"));
+
+    const uses = items.reduce((sum, item) => sum + item.count, 0);
+    summary.appendChild(el("span", "var-group-count",
+        `${items.length.toLocaleString()} name${items.length === 1 ? "" : "s"}`
+        + ` · ${uses.toLocaleString()} use${uses === 1 ? "" : "s"}`));
+    summary.appendChild(el("span", "macro-chip-flag", "new"));
+    summary.title = scope === "global"
+        ? "Global variable shorthands ($name). Click to list the variables in this text."
+        : "Local variable shorthands (.name). Click to list the variables in this text.";
+
+    const chips = el("div", "macro-chips var-group-chips");
+    for (const item of items) chips.appendChild(createMacroChip(item));
+
+    details.append(summary, chips);
+    return details;
+}
+
 function renderChips(container, analysis) {
     container.innerHTML = "";
     if (!analysis || analysis.stats.total === 0) return;
-    const chips = el("div", "macro-chips");
+
     const items = Object.values(analysis.stats.byName)
         .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    for (const item of items) {
-        const chip = el("span", `macro-chip cat-${item.category}`);
-        const def = getMacroDefinition(item.name);
-        let flag = "";
-        if (item.newEngineOnly) flag = "new";
-        else if (item.extension) flag = "ext";
-        else if (item.dynamic) flag = "dyn";
-        else if (!item.known) flag = "?";
-        const title = [`{{${item.name}}}`];
-        if (def?.description) title.push(def.description);
-        if (flag) title.push(flag);
-        chip.title = title.join("\n");
-        chip.appendChild(el("span", "macro-dot"));
-        chip.appendChild(el("code", "macro-chip-name", item.name));
-        chip.appendChild(el("span", "macro-chip-count", `×${item.count}`));
-        if (flag) chip.appendChild(el("span", "macro-chip-flag", flag));
-        chips.appendChild(chip);
+
+    const regular = items.filter(item => !item.isVariable);
+    if (regular.length > 0) {
+        const chips = el("div", "macro-chips");
+        for (const item of regular) chips.appendChild(createMacroChip(item));
+        container.appendChild(chips);
     }
-    container.appendChild(chips);
+
+    const groups = el("div", "macro-var-groups");
+    for (const scope of ["local", "global"]) {
+        const scoped = (analysis.stats.shorthandVars?.[scope] ?? [])
+            .slice()
+            .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+        if (scoped.length > 0) groups.appendChild(createVariableGroup(scope, scoped));
+    }
+    if (groups.children.length > 0) container.appendChild(groups);
 }
 
 function macroSummaryText(analysis, expanded) {
@@ -538,7 +609,7 @@ function renderSidebar() {
         const btn = el("button", "order-select", name);
         btn.type = "button";
         btn.title = entry.identifier + (isDefaultPromptId(entry.identifier) ? " (ST default)" : "");
-        btn.addEventListener("click", () => { selection = { type: "prompt", key: entry.identifier }; renderSidebar(); renderMain(); });
+        btn.addEventListener("click", () => showDocumentSelection({ type: "prompt", key: entry.identifier }));
 
         const up = el("button", "row-btn", "▲");
         up.type = "button"; up.title = "Move up"; up.disabled = idx === 0;
@@ -569,7 +640,7 @@ function renderSidebar() {
         if (selection?.type === "prompt" && selection.key === id) li.classList.add("selected");
         const btn = el("button", "order-select", `${name} (orphan)`);
         btn.type = "button"; btn.title = id;
-        btn.addEventListener("click", () => { selection = { type: "prompt", key: id }; renderSidebar(); renderMain(); });
+        btn.addEventListener("click", () => showDocumentSelection({ type: "prompt", key: id }));
         const add = el("button", "row-btn", "+order");
         add.type = "button"; add.title = "Append to prompt order";
         add.addEventListener("click", () => {
@@ -592,7 +663,7 @@ function renderSidebar() {
         const a = analyzeMacros(text, { kind: "utility", field: key, expanded: info.expanded });
         btn.textContent = `${key} — ${macroSummaryText(a, info.expanded)}`;
         if (a.stats.errors > 0) btn.classList.add("warn");
-        btn.addEventListener("click", () => { selection = { type: "utility", key }; renderSidebar(); renderMain(); });
+        btn.addEventListener("click", () => showDocumentSelection({ type: "utility", key }));
         li.appendChild(btn);
         utilityList.appendChild(li);
     }
@@ -691,6 +762,8 @@ function renderVariableList() {
         return;
     }
 
+    renderCurrentVariables();
+
     for (const scope of ["local", "global"]) {
         const scoped = variableIndex.variables.filter(variable => variable.scope === scope);
         if (scoped.length === 0) continue;
@@ -706,20 +779,67 @@ function renderVariableList() {
     }
 }
 
-function createVariableRow(variable) {
+/**
+ * Variables that occur in the document currently open in the middle pane,
+ * with counts limited to that document. Sorted by usage, not by name: this
+ * is "what is in front of me", not a directory listing.
+ */
+function currentDocumentVariables() {
+    if (!selection) return null;
+    const { type, key } = selection;
+    const entries = [];
+
+    for (const variable of variableIndex.variables) {
+        const writes = variable.writes.filter(site => site.kind === type && site.id === key);
+        const reads = variable.reads.filter(site => site.kind === type && site.id === key);
+        if (writes.length + reads.length === 0) continue;
+        entries.push({ variable, writes, reads });
+    }
+
+    entries.sort((a, b) =>
+        (b.writes.length + b.reads.length) - (a.writes.length + a.reads.length)
+        || a.variable.name.localeCompare(b.variable.name));
+    return entries;
+}
+
+function renderCurrentVariables() {
+    const entries = currentDocumentVariables();
+    if (!entries) return;
+
+    const isUtility = selection.type === "utility";
+    const where = isUtility ? "in this field" : "in this prompt";
+
+    const section = el("div", "outline-group outline-current");
+    section.appendChild(el("h3", null,
+        `${isUtility ? "In this utility field" : "In this prompt"} (${entries.length})`));
+
+    if (entries.length === 0) {
+        section.appendChild(el("p", "outline-empty", `No variables ${where}.`));
+        outlineBody.appendChild(section);
+        return;
+    }
+
+    const list = el("ul", "outline-list");
+    for (const { variable, writes, reads } of entries) {
+        list.appendChild(createVariableRow(variable, writes.length, reads.length, where));
+    }
+    section.appendChild(list);
+    outlineBody.appendChild(section);
+}
+
+function createVariableRow(variable, defs = variable.writes.length, refs = variable.reads.length, where = "") {
     const li = el("li");
     const btn = el("button", "outline-var");
     btn.type = "button";
 
     const prefix = el("span", "var-scope", variable.scope === "global" ? "$" : ".");
     const name = el("span", "var-name", variable.name);
-    const defs = variable.writes.length;
-    const refs = variable.reads.length;
     const counts = el("span", "var-counts",
         `${defs} def${defs === 1 ? "" : "s"} · ${refs} ref${refs === 1 ? "" : "s"}`);
 
     btn.title = `${variable.scope} variable "${variable.name}" — `
-        + `${defs} definition${defs === 1 ? "" : "s"}, ${refs} reference${refs === 1 ? "" : "s"} in this preset.`;
+        + `${defs} definition${defs === 1 ? "" : "s"}, ${refs} reference${refs === 1 ? "" : "s"}`
+        + `${where ? ` ${where}` : " in this preset"}.`;
     btn.append(prefix, name, counts);
     btn.addEventListener("click", () => {
         outlineSelection = variable.key;
@@ -808,6 +928,18 @@ function openVariableSite(site) {
 
     const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
     textarea.scrollTop = Math.max(0, (site.line - 1) * lineHeight - textarea.clientHeight / 2);
+}
+
+/**
+ * Selecting a document in the sidebar returns the outline to its list view,
+ * where the "in this prompt" section describes the new selection.
+ */
+function showDocumentSelection(next) {
+    selection = next;
+    outlineSelection = null;
+    renderSidebar();
+    renderMain();
+    renderOutline();
 }
 
 /* ------------------------------------------------------------------ *
@@ -1205,6 +1337,9 @@ function renderAll() {
         renderOutline();
         return;
     }
+    // Structural re-render (load, add, duplicate, delete): go back to the
+    // preset-wide list for the document that is now selected.
+    outlineSelection = null;
     renderSidebar();
     renderMain();
     updateStats();
